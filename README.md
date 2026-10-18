@@ -1,9 +1,31 @@
-# image9
+![image](image.png)
 
-A fast Windows image viewer with a canvas for multiple images.
+<center>
+<h3>image9</h3>
+<small>Spatial image viewer - <a href="https://github.com/hazzard993/image9/releases/latest/download/image9.exe">Download</a></small>
+<br/>
+<br/>
+</center>
 
-**[Download for Windows 10/11 x64](https://github.com/hazzard993/image9/releases/latest/download/image9.exe)** - run it without installation.
+Suitable for:
 
-Open or drag in images. Drag to pan; scroll to zoom.
+- Viewing large images
+- Viewing multiple images at once (drop images into viewer)
 
-[Controls and settings](docs/CONTROLS.md) · [Releases](https://github.com/hazzard993/image9/releases) · [Development](docs/HANDOFF.md)
+Features:
+
+- Quick image viewing (fast to opem, q to exit)
+- Zooming and panning through images
+- Keyboard friendly navigation
+
+Modes:
+
+- Use ctrl to switch to inspect mode (use I to lock it, esc to exit)
+
+Controls:
+
+- LMB or MMB - Panning the viewer
+- RMB - Toggle colour picker
+- Ctrl+RMB - Remove an image from workspace
+- 1, 2, 3, 4 - Change background colour
+- Shortcuts should be listed under "View"
