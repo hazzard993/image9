@@ -61,6 +61,7 @@ type gpuTile struct {
 type gpuRenderer struct {
 	factory, target *d2dObject
 	tiles           []gpuTile
+	textures        map[*decodedImage][]gpuTile
 	image           *decodedImage
 	width, height   int
 	hardware        bool
@@ -70,8 +71,11 @@ type gpuRenderer struct {
 
 func (r *gpuRenderer) disposeTarget() {
 	release(&r.boundsBrush)
-	for i := range r.tiles {
-		release(&r.tiles[i].bitmap)
+	for im, tiles := range r.textures {
+		for i := range tiles {
+			release(&tiles[i].bitmap)
+		}
+		delete(r.textures, im)
 	}
 	r.tiles = nil
 	r.image = nil
@@ -129,15 +133,14 @@ func tileRegions(width, height, limit int) []gpuTile {
 }
 
 func (r *gpuRenderer) upload(im *decodedImage) error {
-	if r.image == im {
+	if im == nil {
+		r.tiles = nil
+		r.image = nil
 		return nil
 	}
-	for i := range r.tiles {
-		release(&r.tiles[i].bitmap)
-	}
-	r.tiles = nil
-	r.image = nil
-	if im == nil {
+	if tiles, ok := r.textures[im]; ok {
+		r.tiles = tiles
+		r.image = im
 		return nil
 	}
 	limit := min(4096, int(r.target.call(55)))
@@ -160,46 +163,100 @@ func (r *gpuRenderer) upload(im *decodedImage) error {
 			return err
 		}
 	}
+	if r.textures == nil {
+		r.textures = make(map[*decodedImage][]gpuTile)
+	}
+	r.textures[im] = tiles
 	r.tiles, r.image = tiles, im
 	return nil
 }
 
+type sceneImage struct {
+	image *decodedImage
+	x, y  int
+}
+
 func (r *gpuRenderer) draw(hwnd win.HWND, width, height int, im *decodedImage, scale, x, y float64, linear bool, background win.COLORREF) error {
+	var scene []sceneImage
+	if im != nil {
+		scene = []sceneImage{{image: im}}
+	}
+	return r.drawScene(hwnd, width, height, scene, scale, x, y, linear, background)
+}
+
+func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneImage, scale, x, y float64, linear bool, background win.COLORREF) error {
 	if width <= 0 || height <= 0 {
 		return nil
 	}
 	if err := r.ensure(hwnd, width, height); err != nil {
 		return err
 	}
-	if err := r.upload(im); err != nil {
-		return err
+	keep := make(map[*decodedImage]bool, len(scene))
+	for _, item := range scene {
+		if item.image != nil {
+			keep[item.image] = true
+		}
 	}
-	if r.highlightBounds && im != nil && r.boundsBrush == nil {
+	for im, tiles := range r.textures {
+		if !keep[im] {
+			for i := range tiles {
+				release(&tiles[i].bitmap)
+			}
+			delete(r.textures, im)
+		}
+	}
+	if !keep[r.image] {
+		r.image = nil
+		r.tiles = nil
+	}
+	type preparedImage struct {
+		im    *decodedImage
+		tiles []gpuTile
+		x, y  float64
+	}
+	prepared := make([]preparedImage, 0, len(scene))
+	for _, item := range scene {
+		im := item.image
+		if im == nil {
+			continue
+		}
+		left, top := x+float64(item.x)*scale, y+float64(item.y)*scale
+		if left+float64(im.width)*scale <= 0 || top+float64(im.height)*scale <= 0 || left >= float64(width) || top >= float64(height) {
+			continue
+		}
+		if err := r.upload(im); err != nil {
+			return err
+		}
+		prepared = append(prepared, preparedImage{im: im, tiles: r.tiles, x: left, y: top})
+	}
+	if r.highlightBounds && len(prepared) > 0 && r.boundsBrush == nil {
 		blue := d2dColour{r: 0.1, g: 0.5, b: 1, a: 1}
 		if err := d2dError("Create bounds brush", r.target.call(8, uintptr(unsafe.Pointer(&blue)), 0, uintptr(unsafe.Pointer(&r.boundsBrush)))); err != nil {
 			return err
 		}
 	}
 	colour := d2dColour{float32(background&255) / 255, float32((background>>8)&255) / 255, float32((background>>16)&255) / 255, 1}
-	r.target.call(48) // BeginDraw
+	r.target.call(48)
 	r.target.call(47, uintptr(unsafe.Pointer(&colour)))
 	mode := uintptr(0)
 	if linear {
 		mode = 1
 	}
-	for _, tile := range r.tiles {
-		dst := d2dRect{float32(x + float64(tile.core.Min.X)*scale), float32(y + float64(tile.core.Min.Y)*scale), float32(x + float64(tile.core.Max.X)*scale), float32(y + float64(tile.core.Max.Y)*scale)}
-		if dst.right <= 0 || dst.bottom <= 0 || dst.left >= float32(width) || dst.top >= float32(height) {
-			continue
+	for _, item := range prepared {
+		for _, tile := range item.tiles {
+			dst := d2dRect{float32(item.x + float64(tile.core.Min.X)*scale), float32(item.y + float64(tile.core.Min.Y)*scale), float32(item.x + float64(tile.core.Max.X)*scale), float32(item.y + float64(tile.core.Max.Y)*scale)}
+			if dst.right <= 0 || dst.bottom <= 0 || dst.left >= float32(width) || dst.top >= float32(height) {
+				continue
+			}
+			src := d2dRect{float32(tile.core.Min.X - tile.pixels.Min.X), float32(tile.core.Min.Y - tile.pixels.Min.Y), float32(tile.core.Max.X - tile.pixels.Min.X), float32(tile.core.Max.Y - tile.pixels.Min.Y)}
+			r.target.call(26, uintptr(unsafe.Pointer(tile.bitmap)), uintptr(unsafe.Pointer(&dst)), uintptr(math.Float32bits(1)), mode, uintptr(unsafe.Pointer(&src)))
 		}
-		src := d2dRect{float32(tile.core.Min.X - tile.pixels.Min.X), float32(tile.core.Min.Y - tile.pixels.Min.Y), float32(tile.core.Max.X - tile.pixels.Min.X), float32(tile.core.Max.Y - tile.pixels.Min.Y)}
-		r.target.call(26, uintptr(unsafe.Pointer(tile.bitmap)), uintptr(unsafe.Pointer(&dst)), uintptr(math.Float32bits(1)), mode, uintptr(unsafe.Pointer(&src)))
+		if r.highlightBounds {
+			bounds := d2dRect{float32(item.x), float32(item.y), float32(item.x + float64(item.im.width)*scale), float32(item.y + float64(item.im.height)*scale)}
+			r.target.call(16, uintptr(unsafe.Pointer(&bounds)), uintptr(unsafe.Pointer(r.boundsBrush)), uintptr(math.Float32bits(2)), 0)
+		}
 	}
-	if r.highlightBounds && im != nil {
-		bounds := d2dRect{float32(x), float32(y), float32(x + float64(im.width)*scale), float32(y + float64(im.height)*scale)}
-		r.target.call(16, uintptr(unsafe.Pointer(&bounds)), uintptr(unsafe.Pointer(r.boundsBrush)), uintptr(math.Float32bits(2)), 0)
-	}
-	hr := r.target.call(49, 0, 0) // EndDraw presents the completed frame.
+	hr := r.target.call(49, 0, 0)
 	if uint32(hr) == 0x8899000c {
 		r.disposeTarget()
 		return errRecreateTarget

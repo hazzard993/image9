@@ -10,7 +10,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/lxn/walk"
@@ -30,7 +29,6 @@ type viewer struct {
 	rendererLabel       string
 	loader              *imageLoader
 	loadID              uint64
-	pendingPath         string
 	loading             bool
 	highlightBounds     bool
 	source              *decodedImage
@@ -46,11 +44,12 @@ type viewer struct {
 	copyFormatActions   [3]*walk.Action
 	sourceColourSpace   sourceColourSpace
 	colourSpaceActions  [4]*walk.Action
-	preserveView        bool
 	dragButton          walk.MouseButton
 	dark                bool
 	themeBrush          *walk.SolidColorBrush
-	files               []string
+	workspace           []workspaceImage
+	activeIndex         int
+	loadingIndex        int
 	path                string
 	width, height       int
 	scale, panX, panY   float64
@@ -66,6 +65,7 @@ func main() {
 		Layout: VBox{MarginsZero: true, SpacingZero: true},
 		MenuItems: []MenuItem{
 			Menu{Text: "&File", Items: []MenuItem{
+				Action{Text: "Clear workspace", Shortcut: Shortcut{Modifiers: walk.ModControl, Key: walk.KeyN}, OnTriggered: v.clearWorkspace},
 				Action{Text: "&Open…", Shortcut: Shortcut{Modifiers: walk.ModControl, Key: walk.KeyO}, OnTriggered: v.openDialog},
 				Action{Text: "E&xit", Shortcut: Shortcut{Key: walk.KeyQ}, OnTriggered: func() { v.window.Close() }},
 			}},
@@ -119,6 +119,9 @@ func main() {
 							return
 						}
 						v.focusImage()
+						if index, _, _ := v.hitImage(x, y); index >= 0 {
+							v.selectImage(index)
+						}
 						v.startDrag(x, y, b)
 					}
 				},
@@ -132,6 +135,10 @@ func main() {
 						v.stopDrag()
 					}
 					if v.dragging {
+						if v.fit && (x != v.lastX || y != v.lastY) {
+							v.scale = v.displayScale()
+							v.fit = false
+						}
 						v.panX += float64(x - v.lastX)
 						v.panY += float64(y - v.lastY)
 						v.lastX = x
@@ -183,18 +190,10 @@ func main() {
 			v.zoomAt(1/1.25, float64(point.X), float64(point.Y))
 		}
 	})
-	v.window.DropFiles().Attach(func(paths []string) {
-		if len(paths) > 0 {
-			v.open(paths[0])
-		}
-	})
-	v.canvas.DropFiles().Attach(func(paths []string) {
-		if len(paths) > 0 {
-			v.open(paths[0])
-		}
-	})
+	v.window.DropFiles().Attach(v.openImages)
+	v.canvas.DropFiles().Attach(v.openImages)
 	if len(os.Args) > 1 {
-		v.open(os.Args[1])
+		v.openImages(os.Args[1:])
 	}
 	v.window.Run()
 }
@@ -259,7 +258,7 @@ func (v *viewer) toggleColourPicker() {
 		v.focusImage()
 		return
 	}
-	if v.source == nil {
+	if len(v.workspace) == 0 {
 		return
 	}
 	v.focusImage()
@@ -269,14 +268,11 @@ func (v *viewer) toggleColourPicker() {
 }
 
 func (v *viewer) colourAt(x, y int) (string, bool) {
-	if v.source == nil {
+	index, px, py := v.hitImage(x, y)
+	if index < 0 {
 		return "", false
 	}
-	b := v.canvas.ClientBoundsPixels()
-	s := v.displayScale()
-	left := math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX)
-	top := math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY)
-	return imageColourAt(v.source, int(math.Floor((float64(x)-left)/s)), int(math.Floor((float64(y)-top)/s)))
+	return imageColourAt(v.workspace[index].image, px, py)
 }
 
 func (v *viewer) previewColourAt(x, y int) {
@@ -349,61 +345,43 @@ func imageColourAt(im *decodedImage, x, y int) (string, bool) {
 }
 
 func (v *viewer) openDialog() {
-	d := walk.FileDialog{Title: "Open image", Filter: "Images (*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tif;*.tiff;*.webp)|*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tif;*.tiff;*.webp|All files (*.*)|*.*", FilePath: v.path}
-	if ok, err := d.ShowOpen(v.window); err != nil {
+	d := walk.FileDialog{Title: "Open images", Filter: "Images (*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tif;*.tiff;*.webp)|*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tif;*.tiff;*.webp|All files (*.*)|*.*", FilePath: v.path}
+	if ok, err := d.ShowOpenMultiple(v.window); err != nil {
 		v.showError(err)
 	} else if ok {
-		v.open(d.FilePath)
+		v.openImages(d.FilePaths)
 	}
 }
 
-func (v *viewer) open(path string) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		v.showError(err)
-		return
-	}
-	v.pendingPath = abs
-	v.loading = true
-	v.preserveView = false
-	v.loadID = v.loader.request(abs, v.sourceColourSpace)
-	v.status.SetText("Loading…")
-	v.window.SetTitle(filepath.Base(abs) + " — Loading…")
-}
-
-func supported(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp":
-		return true
-	}
-	return false
-}
-
-func folderImages(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var paths []string
-	for _, e := range entries {
-		if !e.IsDir() && supported(e.Name()) {
-			paths = append(paths, filepath.Join(dir, e.Name()))
+func normalizeImagePaths(paths []string) ([]string, error) {
+	seen := make(map[string]bool)
+	var result []string
+	for _, path := range paths {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		key := strings.ToLower(abs)
+		if !seen[key] {
+			result = append(result, abs)
+			seen[key] = true
 		}
 	}
-	sort.Slice(paths, func(i, j int) bool { return strings.ToLower(paths[i]) < strings.ToLower(paths[j]) })
-	return paths, nil
+	return result, nil
 }
+
+func (v *viewer) openImages(paths []string) { v.addWorkspaceImages(paths) }
 
 func (v *viewer) navigate(delta int) {
-	if len(v.files) < 2 {
+	if len(v.workspace) == 0 {
 		return
 	}
-	for i, p := range v.files {
-		if strings.EqualFold(p, v.pendingPath) {
-			v.open(v.files[(i+delta+len(v.files))%len(v.files)])
-			return
-		}
-	}
+	s := v.displayScale()
+	v.selectImage((v.activeIndex + delta + len(v.workspace)) % len(v.workspace))
+	v.fit = false
+	v.scale = s
+	v.centreActive(s)
+	v.canvas.Invalidate()
 }
 
 func (v *viewer) fitImage() { v.fit = true; v.panX = 0; v.panY = 0; v.canvas.Invalidate() }
@@ -412,6 +390,7 @@ func (v *viewer) actualSize() {
 	v.scale = 1
 	v.panX = 0
 	v.panY = 0
+	v.centreActive(1)
 	v.canvas.Invalidate()
 }
 func (v *viewer) zoom(factor float64) {
@@ -420,11 +399,11 @@ func (v *viewer) zoom(factor float64) {
 }
 
 func (v *viewer) zoomAt(factor, x, y float64) {
-	if v.source == nil {
+	if len(v.workspace) == 0 {
 		return
 	}
 	before := v.displayScale()
-	v.scale = math.Max(0.01, math.Min(32, before*factor))
+	v.scale = math.Max(0.000001, math.Min(32, before*factor))
 	v.fit = false
 	b := v.canvas.ClientBoundsPixels()
 	ratio := v.scale / before
@@ -438,11 +417,11 @@ func zoomPan(pan, anchor, centre, ratio float64) float64 {
 	return pan*ratio + (anchor-centre)*(1-ratio)
 }
 func (v *viewer) displayScale() float64 {
-	if !v.fit || v.source == nil {
+	if !v.fit || len(v.workspace) == 0 {
 		return v.scale
 	}
 	b := v.canvas.ClientBoundsPixels()
-	return math.Max(0.001, math.Min(1, math.Min(float64(b.Width)/float64(v.width), float64(b.Height)/float64(v.height))))
+	return math.Max(0.000001, math.Min(1, math.Min(float64(b.Width)/float64(v.width), float64(b.Height)/float64(v.height))))
 }
 func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	b := v.canvas.ClientBoundsPixels()
@@ -457,7 +436,11 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	y := math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY)
 	background := v.canvas.Background().(*walk.SolidColorBrush).Color()
 	v.renderer.highlightBounds = v.highlightBounds
-	err := v.renderer.draw(v.canvas.Handle(), b.Width, b.Height, v.source, s, x, y, v.linear, win.COLORREF(background))
+	scene := make([]sceneImage, 0, len(v.workspace))
+	for _, item := range v.workspace {
+		scene = append(scene, sceneImage{image: item.image, x: item.x, y: item.y})
+	}
+	err := v.renderer.drawScene(v.canvas.Handle(), b.Width, b.Height, scene, s, x, y, v.linear, win.COLORREF(background))
 	if err == errRecreateTarget {
 		v.canvas.Invalidate()
 		return nil
@@ -467,13 +450,7 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 		v.status.SetToolTipText(err.Error())
 		return nil
 	}
-	status := "Open an image • Ctrl+O"
-	if v.source != nil {
-		status = fmt.Sprintf("%d × %d  •  %.0f%%  •  %s", v.width, v.height, s*100, formatFileSize(v.source.fileSize))
-	}
-	if v.loading {
-		status = "Loading…"
-	}
+	status := v.workspaceStatus(s)
 	if v.status.Text() != status {
 		v.status.SetText(status)
 	}

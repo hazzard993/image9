@@ -21,13 +21,8 @@ func (v *viewer) setSourceColourSpace(space sourceColourSpace) {
 			action.SetChecked(i == int(space))
 		}
 	}
-	path := v.pendingPath
-	if path == "" {
-		path = v.path
-	}
-	if changed && path != "" {
-		v.open(path)
-		v.preserveView = path == v.path
+	if changed && len(v.workspace) > 0 {
+		v.reloadWorkspace()
 	}
 }
 

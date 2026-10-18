@@ -130,6 +130,39 @@ func checkDirect2DPixels(t *testing.T, factory *d2dObject) {
 	if alpha[0] != 127 || alpha[1] != 127 || alpha[2] != 255 {
 		t.Fatalf("alpha/color output: %v", alpha[:4])
 	}
+	red, green := &decodedImage{width: 2, height: 4, pixels: make([]byte, 32)}, &decodedImage{width: 2, height: 4, pixels: make([]byte, 32)}
+	for i := 0; i < 32; i += 4 {
+		red.pixels[i+2] = 255
+		red.pixels[i+3] = 255
+		green.pixels[i+1] = 255
+		green.pixels[i+3] = 255
+	}
+	scene := []sceneImage{{image: red}, {image: green, x: 4}}
+	if err := r.drawScene(0, 8, 4, scene, 1, 0, 0, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	redTexture, greenTexture := r.textures[red][0].bitmap, r.textures[green][0].bitmap
+	spatial := make([]byte, 128)
+	if err := d2dError("Read spatial output", bitmap.call(7, 0, 32, 128, uintptr(unsafe.Pointer(&spatial[0])))); err != nil {
+		t.Fatal(err)
+	}
+	if spatial[32+2] != 255 || spatial[32+4*4+1] != 255 || spatial[32+2*4] != 0 || spatial[32+2*4+1] != 0 || spatial[32+2*4+2] != 0 {
+		t.Fatalf("spatial images/gap were not rendered correctly: %v", spatial[32:64])
+	}
+	for _, pan := range []float64{-4, 0} {
+		if err := r.drawScene(0, 8, 4, scene, 1, pan, 0, false, 0); err != nil {
+			t.Fatal(err)
+		}
+		if r.textures[red][0].bitmap != redTexture || r.textures[green][0].bitmap != greenTexture {
+			t.Fatal("spatial pan reuploaded images")
+		}
+	}
+	if err := r.drawScene(0, 8, 4, nil, 1, 0, 0, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.textures) != 0 || r.image != nil {
+		t.Fatal("clearing did not release image resources")
+	}
 	// Draw across a texture boundary at source x=4094 with linear filtering.
 	large := &decodedImage{width: 9000, height: 1, pixels: make([]byte, 9000*4)}
 	for i := 0; i < len(large.pixels); i += 4 {

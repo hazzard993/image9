@@ -4,7 +4,6 @@ package main
 
 import (
 	"math"
-	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -26,6 +25,21 @@ func TestImageColourSampling(t *testing.T) {
 	}
 }
 
+func TestMultipleImagePaths(t *testing.T) {
+	dir := t.TempDir()
+	first, second := filepath.Join(dir, "First.png"), filepath.Join(dir, "Second.jpg")
+	paths, err := normalizeImagePaths([]string{first, second, filepath.Join(dir, "FIRST.PNG")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(paths, []string{first, second}) {
+		t.Fatalf("order/deduplication: %v", paths)
+	}
+	if paths, err := normalizeImagePaths(nil); err != nil || len(paths) != 0 {
+		t.Fatal("empty selection should be empty")
+	}
+}
+
 func TestZoomKeepsCursorImagePoint(t *testing.T) {
 	for _, test := range []struct{ pan, anchor, centre, scale, ratio float64 }{
 		{0, 100, 500, 0.5, 1.25}, {135, 720, 500, 2, 0.8}, {-80, 300, 720, 1, 4}, {50, 500, 500, 1, 1},
@@ -38,31 +52,5 @@ func TestZoomKeepsCursorImagePoint(t *testing.T) {
 		if math.Abs(before-after) > 1e-9 {
 			t.Fatalf("cursor image point moved: %v -> %v", before, after)
 		}
-	}
-}
-
-func TestFolderImages(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"z.JPG", "B.webp", "a.png", "notes.txt", "noextension"} {
-		if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Mkdir(filepath.Join(dir, "folder.jpg"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	paths, err := folderImages(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{filepath.Join(dir, "a.png"), filepath.Join(dir, "B.webp"), filepath.Join(dir, "z.JPG")}
-	if !reflect.DeepEqual(paths, want) {
-		t.Fatalf("got %v, want %v", paths, want)
-	}
-}
-
-func TestFolderImagesMissing(t *testing.T) {
-	if _, err := folderImages(filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Fatal("expected missing directory error")
 	}
 }

@@ -48,6 +48,7 @@ func TestNativeThemeSwitch(t *testing.T) {
 		t.Fatal("nested background shortcut not registered")
 	}
 	t.Run("Direct2D render and recovery", exerciseDirect2DRenderAndRecovery)
+	t.Run("Spatial workspace loading", exerciseSpatialLoading)
 	for _, dark := range []bool{true, false, true} {
 		v.dark = dark
 		v.applyTheme()

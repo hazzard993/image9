@@ -32,7 +32,6 @@ type loadRequest struct {
 type loadResult struct {
 	request loadRequest
 	image   *decodedImage
-	files   []string
 	err     error
 }
 type imageLoader struct {
@@ -66,10 +65,6 @@ func newImageLoader(notify func(), decode func(string, func() bool) (*decodedIma
 				if cancelled() {
 					continue
 				}
-				files, err := folderImages(filepath.Dir(request.path))
-				if err != nil {
-					files = []string{request.path}
-				}
 				im, err := decode(request.path, cancelled)
 				if err == nil && request.space != spaceSRGB {
 					err = convertSourceColourSpace(im, request.space, cancelled)
@@ -77,7 +72,7 @@ func newImageLoader(notify func(), decode func(string, func() bool) (*decodedIma
 				if cancelled() {
 					continue
 				}
-				result := loadResult{request: request, image: im, files: files, err: err}
+				result := loadResult{request: request, image: im, err: err}
 				select {
 				case <-l.results:
 				default:
@@ -107,6 +102,15 @@ func (l *imageLoader) request(path string, spaces ...sourceColourSpace) uint64 {
 	return id
 }
 func (l *imageLoader) close() { l.closed.Do(func() { close(l.stop) }) }
+
+func (l *imageLoader) cancel() uint64 {
+	id := l.latest.Add(1)
+	select {
+	case <-l.requests:
+	default:
+	}
+	return id
+}
 
 type cancellableReader struct {
 	io.Reader
@@ -207,27 +211,28 @@ func (v *viewer) finishLoad() {
 	for {
 		select {
 		case result := <-v.loader.results:
-			if result.request.id != v.loadID {
+			if result.request.id != v.loadID || v.loadingIndex < 0 || v.loadingIndex >= len(v.workspace) {
 				continue
 			}
+			index := v.loadingIndex
 			v.loading = false
+			v.workspace[index].reload = false
 			if result.err != nil {
-				v.pendingPath = v.path
-				v.window.SetTitle(filepath.Base(v.path) + " — Quick Image Viewer")
-				v.canvas.Invalidate()
-				v.showError(result.err)
-				continue
-			}
-			v.source = result.image
-			v.path, v.pendingPath = result.request.path, result.request.path
-			v.files = result.files
-			v.width, v.height = result.image.width, result.image.height
-			if v.preserveView {
-				v.canvas.Invalidate()
+				v.workspace[index].failed = true
 			} else {
-				v.fitImage()
+				v.workspace[index].image = result.image
 			}
-			v.window.SetTitle(filepath.Base(v.path) + " — Quick Image Viewer")
+			v.arrangeWorkspace()
+			if index == v.activeIndex {
+				v.selectImage(index)
+			}
+			if v.source == nil && result.image != nil {
+				v.selectImage(index)
+			}
+			v.loadNextWorkspaceImage()
+			if result.err != nil {
+				v.showError(result.err)
+			}
 		default:
 			return
 		}
