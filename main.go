@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -18,8 +17,6 @@ import (
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
 	_ "golang.org/x/image/bmp"
-	"golang.org/x/image/draw"
-	"golang.org/x/image/math/f64"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 )
@@ -29,27 +26,25 @@ type viewer struct {
 	canvas              *walk.CustomWidget
 	footer              *walk.Composite
 	status              *walk.Label
-	bitmap              *walk.Bitmap
-	source              image.Image
+	renderer            *gpuRenderer
+	rendererLabel       string
+	loader              *imageLoader
+	loadID              uint64
+	pendingPath         string
+	loading             bool
+	source              *decodedImage
 	linear              bool
 	interpolationButton *walk.PushButton
 	palette             *walk.ImageView
 	backgroundIndex     int
 	dark                bool
 	themeBrush          *walk.SolidColorBrush
-	rendered            renderKey
 	files               []string
 	path                string
 	width, height       int
 	scale, panX, panY   float64
 	fit, dragging       bool
 	lastX, lastY        int
-}
-
-type renderKey struct {
-	width, height int
-	scale, x, y   float64
-	linear        bool
 }
 
 func main() {
@@ -78,7 +73,7 @@ func main() {
 		},
 		Children: []Widget{
 			CustomWidget{AssignTo: &v.canvas, Background: SolidColorBrush{Color: walk.RGB(30, 30, 33)},
-				Style: win.WS_TABSTOP, PaintMode: PaintBuffered, InvalidatesOnResize: true, PaintPixels: v.paint,
+				Style: win.WS_TABSTOP, PaintMode: PaintNoErase, InvalidatesOnResize: true, PaintPixels: v.paint,
 				OnMouseDown: func(x, y int, b walk.MouseButton) {
 					if b == walk.LeftButton {
 						v.focusImage()
@@ -132,6 +127,7 @@ func main() {
 	}
 	v.window.Starting().Attach(v.focusImage)
 	v.applyTheme()
+	installLoadPump(v)
 	v.canvas.MouseWheel().Attach(func(x, y int, b walk.MouseButton) {
 		if walk.MouseWheelEventDelta(b) > 0 {
 			v.zoom(1.25)
@@ -149,11 +145,6 @@ func main() {
 			v.open(paths[0])
 		}
 	})
-	defer func() {
-		if v.bitmap != nil {
-			v.bitmap.Dispose()
-		}
-	}()
 	if len(os.Args) > 1 {
 		v.open(os.Args[1])
 	}
@@ -180,32 +171,11 @@ func (v *viewer) open(path string) {
 		v.showError(err)
 		return
 	}
-	f, err := os.Open(abs)
-	if err != nil {
-		v.showError(err)
-		return
-	}
-	im, _, err := image.Decode(f)
-	f.Close()
-	if err != nil {
-		v.showError(fmt.Errorf("cannot decode %s: %w", filepath.Base(abs), err))
-		return
-	}
-	old := v.bitmap
-	v.bitmap = nil
-	v.source = im
-	if old != nil {
-		old.Dispose()
-	}
-	v.path = abs
-	v.width = im.Bounds().Dx()
-	v.height = im.Bounds().Dy()
-	v.files, err = folderImages(filepath.Dir(abs))
-	if err != nil {
-		v.files = []string{abs}
-	}
-	v.fitImage()
-	v.window.SetTitle(filepath.Base(abs) + " — Quick Image Viewer")
+	v.pendingPath = abs
+	v.loading = true
+	v.loadID = v.loader.request(abs)
+	v.status.SetText("Loading…")
+	v.window.SetTitle(filepath.Base(abs) + " — Loading…")
 }
 
 func supported(path string) bool {
@@ -236,7 +206,7 @@ func (v *viewer) navigate(delta int) {
 		return
 	}
 	for i, p := range v.files {
-		if strings.EqualFold(p, v.path) {
+		if strings.EqualFold(p, v.pendingPath) {
 			v.open(v.files[(i+delta+len(v.files))%len(v.files)])
 			return
 		}
@@ -269,40 +239,47 @@ func (v *viewer) displayScale() float64 {
 	b := v.canvas.ClientBoundsPixels()
 	return math.Max(0.001, math.Min(1, math.Min(float64(b.Width)/float64(v.width), float64(b.Height)/float64(v.height))))
 }
-func (v *viewer) paint(c *walk.Canvas, _ walk.Rectangle) error {
-	// Paint a complete frame offscreen, including the background beneath transparent
-	// pixels. PaintBuffered presents it in one blit without a visible erase step.
+func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	b := v.canvas.ClientBoundsPixels()
-	if err := c.FillRectanglePixels(v.canvas.Background(), b); err != nil {
-		return err
-	}
-	if v.source == nil {
-		return nil
-	}
-	s := v.displayScale()
 	if b.Width <= 0 || b.Height <= 0 {
 		return nil
 	}
-	key := renderKey{width: b.Width, height: b.Height, scale: s,
-		x: math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX),
-		y: math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY), linear: v.linear}
-	key, position := planImageRender(v.source.Bounds(), key)
-	if v.bitmap == nil || v.rendered != key {
-		im := renderImage(v.source, key)
-		bitmap, err := walk.NewBitmapFromImageForDPI(im, 96)
-		if err != nil {
-			return err
-		}
-		if v.bitmap != nil {
-			v.bitmap.Dispose()
-		}
-		v.bitmap, v.rendered = bitmap, key
+	if v.renderer == nil {
+		v.renderer = &gpuRenderer{}
 	}
-	status := fmt.Sprintf("%d × %d  •  %.0f%%", v.width, v.height, s*100)
+	s := v.displayScale()
+	x := math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX)
+	y := math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY)
+	background := v.canvas.Background().(*walk.SolidColorBrush).Color()
+	err := v.renderer.draw(v.canvas.Handle(), b.Width, b.Height, v.source, s, x, y, v.linear, win.COLORREF(background))
+	if err == errRecreateTarget {
+		v.canvas.Invalidate()
+		return nil
+	}
+	if err != nil {
+		v.status.SetText("Rendering error")
+		v.status.SetToolTipText(err.Error())
+		return nil
+	}
+	status := "Open an image • Ctrl+O"
+	if v.source != nil {
+		status = fmt.Sprintf("%d × %d  •  %.0f%%", v.width, v.height, s*100)
+	}
+	if v.loading {
+		status = "Loading…"
+	}
 	if v.status.Text() != status {
 		v.status.SetText(status)
 	}
-	return c.DrawImagePixels(v.bitmap, walk.Point{X: position.X, Y: position.Y})
+	label := "Direct2D GPU rendering"
+	if !v.renderer.hardware {
+		label = "Direct2D software fallback (GPU unavailable)"
+	}
+	if v.rendererLabel != label {
+		v.status.SetToolTipText(label)
+		v.rendererLabel = label
+	}
+	return nil
 }
 
 func (v *viewer) toggleInterpolation() {
@@ -385,37 +362,6 @@ func (v *viewer) backgroundPalette() ImageView {
 	}
 }
 
-// Cache the whole scaled image up to 64 MiB. Panning then only moves the native
-// bitmap, with no resampling, pixel allocations, or bitmap uploads per frame.
-// Above that limit, cache a viewport with overscan on a 256-pixel grid instead.
-// This bounds memory at extreme zoom and amortizes resampling across drag events.
-func planImageRender(bounds image.Rectangle, view renderKey) (renderKey, image.Point) {
-	w, h := math.Ceil(float64(bounds.Dx())*view.scale), math.Ceil(float64(bounds.Dy())*view.scale)
-	if w <= 16384 && h <= 16384 && w*h <= 16*1024*1024 {
-		return renderKey{width: int(w), height: int(h), scale: view.scale, linear: view.linear},
-			image.Pt(int(view.x), int(view.y))
-	}
-	const margin = 256
-	key := view
-	key.width += 2 * margin
-	key.height += 2 * margin
-	key.x = math.Floor(view.x/margin)*margin + margin
-	key.y = math.Floor(view.y/margin)*margin + margin
-	return key, image.Pt(int(view.x-key.x), int(view.y-key.y))
-}
-
-// Resample only on a cache miss (zoom, interpolation, new image, or overscan edge).
-func renderImage(src image.Image, key renderKey) *image.RGBA {
-	dst := image.NewRGBA(image.Rect(0, 0, key.width, key.height))
-	var interpolator draw.Transformer = draw.NearestNeighbor
-	if key.linear {
-		interpolator = draw.BiLinear
-	}
-	b := src.Bounds()
-	interpolator.Transform(dst, f64.Aff3{key.scale, 0, key.x - float64(b.Min.X)*key.scale,
-		0, key.scale, key.y - float64(b.Min.Y)*key.scale}, src, b, draw.Src, nil)
-	return dst
-}
 func (v *viewer) showError(err error) {
 	walk.MsgBox(v.window, "Unable to open image", err.Error(), walk.MsgBoxIconError)
 }

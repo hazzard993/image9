@@ -39,6 +39,7 @@ func TestNativeThemeSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer v.window.Dispose()
+	t.Run("Direct2D render and recovery", exerciseDirect2DRenderAndRecovery)
 	for _, dark := range []bool{true, false, true} {
 		v.dark = dark
 		v.applyTheme()
