@@ -32,11 +32,11 @@ func themeConfigPath() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "QuickImageViewer", "theme.txt")
+	return filepath.Join(dir, "image9", "theme.txt")
 }
 
 func loadDarkMode() bool {
-	if data, err := os.ReadFile(themeConfigPath()); err == nil {
+	if data, err := readAppPreference("theme.txt"); err == nil {
 		switch strings.TrimSpace(string(data)) {
 		case "dark":
 			return true
@@ -51,6 +51,19 @@ func loadDarkMode() bool {
 	defer key.Close()
 	value, _, err := key.GetIntegerValue("AppsUseLightTheme")
 	return err == nil && value == 0
+}
+
+func readAppPreference(name string) ([]byte, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "image9", name))
+	if os.IsNotExist(err) {
+		// Retain preferences saved before the application was renamed.
+		return os.ReadFile(filepath.Join(dir, "QuickImageViewer", name))
+	}
+	return data, err
 }
 
 func saveDarkMode(dark bool) {

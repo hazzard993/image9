@@ -55,7 +55,7 @@ func instanceIdentity() (string, error) {
 		return "", err
 	}
 	hash := sha256.Sum256([]byte(strings.ToLower(dir)))
-	return fmt.Sprintf("QuickImageViewer-%x", hash[:16]), nil
+	return fmt.Sprintf("image9-%x", hash[:16]), nil
 }
 
 // The named mutex is owned by the UI thread. A second launch sends a bounded

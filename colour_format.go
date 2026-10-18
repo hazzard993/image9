@@ -73,7 +73,7 @@ func copyFormatPath() string {
 	return filepath.Join(filepath.Dir(base), "colour-format.txt")
 }
 func loadCopyFormat() colourFormat {
-	data, _ := os.ReadFile(copyFormatPath())
+	data, _ := readAppPreference("colour-format.txt")
 	switch strings.TrimSpace(string(data)) {
 	case "rgb":
 		return formatRGB

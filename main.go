@@ -97,8 +97,13 @@ func main() {
 	defer instance.close()
 	v := &viewer{fit: true, scale: 1, zoomToCursor: true, dark: loadDarkMode(), copyFormat: loadCopyFormat()}
 	setNativeAppTheme(v.dark)
+	var appIcon walk.Image
+	if icon, iconErr := walk.NewIconFromResourceId(2); iconErr == nil {
+		appIcon = icon
+		defer icon.Dispose()
+	}
 	err = (MainWindow{
-		AssignTo: &v.window, Title: "Quick Image Viewer", Size: Size{Width: 1000, Height: 740}, MinSize: Size{Width: 800, Height: 320},
+		AssignTo: &v.window, Title: "image9", Icon: appIcon, Size: Size{Width: 1000, Height: 740}, MinSize: Size{Width: 800, Height: 320},
 		Layout: VBox{MarginsZero: true, SpacingZero: true},
 		MenuItems: []MenuItem{
 			Menu{Text: "&File", Items: []MenuItem{

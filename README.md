@@ -1,4 +1,4 @@
-# Quick Image Viewer
+# image9
 
 A small, native Windows image viewer written in Go using Walk. No browser runtime or CGO toolchain required.
 
@@ -8,12 +8,14 @@ Requires Windows 10/11 x64 and Go 1.25.5 or newer. From PowerShell:
 
 ```powershell
 .\build.ps1
-.\dist\QuickImageViewer.exe
+.\dist\image9.exe
 # Or open a file directly:
-.\dist\QuickImageViewer.exe "C:\Pictures\photo.jpg"
+.\dist\image9.exe "C:\Pictures\photo.jpg"
 ```
 
 The build script embeds the Windows application manifest and creates a standalone GUI executable. The first build downloads Go dependencies and the pinned resource compiler. Copy the executable anywhere to use it.
+
+The coloured-square icon is embedded from `assets/image9.ico` at sizes from 16px to 256px. Its editable vector source and PNG preview are in `assets/`; regenerate them with `.\tools\Generate-Icon.ps1` before building.
 
 ## Controls
 
@@ -67,7 +69,7 @@ Images share a spatial canvas at their original relative sizes. They start in a 
 - **View → Copy colour format:** choose Hex, RGB, or HSL for the clipboard. Transparent colours use alpha hex, `rgba()`, or `hsla()`. The live preview stays in hex. Your format choice is remembered.
 - **Linear: On / Off:** toggle bilinear interpolation (smooth scaling) or nearest-neighbor scaling (crisp pixels). Starts disabled and stays selected while browsing images.
 - **Colour swatches:** the three small colour buttons in the bottom toolbar choose charcoal (`#1E1E21`), soft white (`#EEEEEE`), or soft black (`#121212`). Hover for a description. Also applies behind transparent images and stays selected while browsing.
-- **View → Dark mode:** switch the interface between dark and light. Starts with the Windows app theme preference, then remembers your choice in `%APPDATA%\QuickImageViewer\theme.txt`. Image background swatches are independent of the interface theme. The File/View menu bar also follows the theme. System dialogs may retain Windows styling; native dark controls require Windows 10 1903 or newer.
+- **View → Dark mode:** switch the interface between dark and light. Starts with the Windows app theme preference, then remembers your choice in `%APPDATA%\image9\theme.txt`. Image background swatches are independent of the interface theme. The File/View menu bar also follows the theme. System dialogs may retain Windows styling; native dark controls require Windows 10 1903 or newer.
 
 Supports JPEG, PNG, GIF, BMP, TIFF, and WebP. Animated and multipage images display their first frame/page. EXIF orientation and color profile management are not implemented. No image files are modified.
 

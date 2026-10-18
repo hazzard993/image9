@@ -121,7 +121,7 @@ func (v *viewer) selectImage(index int) {
 	item := v.workspace[index]
 	v.source = item.image
 	v.path = item.path
-	v.window.SetTitle("Quick Image Viewer - " + filepath.Base(item.path))
+	v.window.SetTitle("image9 - " + filepath.Base(item.path))
 	v.canvas.Invalidate()
 }
 
@@ -259,7 +259,7 @@ func (v *viewer) clearWorkspace() {
 	v.width, v.height = 0, 0
 	v.fitImage()
 	v.focusImage()
-	v.window.SetTitle("Quick Image Viewer")
+	v.window.SetTitle("image9")
 	v.notifyAction("Workspace cleared")
 }
 
@@ -332,7 +332,7 @@ func (v *viewer) unsetFocusedImage() {
 	v.activeIndex = -1
 	v.source = nil
 	v.path = ""
-	v.window.SetTitle("Quick Image Viewer")
+	v.window.SetTitle("image9")
 	v.notifyAction("Image focus cleared")
 }
 

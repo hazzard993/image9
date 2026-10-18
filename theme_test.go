@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -22,6 +23,31 @@ func TestThemePreferenceRoundTrip(t *testing.T) {
 	}
 	if _, err := os.Stat(themeConfigPath()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRenamedAppKeepsPreferences(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir)
+	legacy := filepath.Join(dir, "QuickImageViewer")
+	if err := os.MkdirAll(legacy, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "theme.txt"), []byte("dark\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "colour-format.txt"), []byte("rgb\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !loadDarkMode() || loadCopyFormat() != formatRGB {
+		t.Fatal("legacy preferences were lost")
+	}
+	saveDarkMode(false)
+	if loadDarkMode() {
+		t.Fatal("new preferences did not override legacy settings")
+	}
+	if filepath.Dir(themeConfigPath()) != filepath.Join(dir, "image9") {
+		t.Fatal("preferences still use the old app directory")
 	}
 }
 
