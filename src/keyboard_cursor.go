@@ -58,9 +58,6 @@ func (v *viewer) installKeyboardCursor() error {
 				case win.WM_KEYDOWN:
 					if message.HWnd == v.window.Handle() || win.IsChild(v.window.Handle(), message.HWnd) {
 						key, modifiers := walk.Key(message.WParam), walk.ModifiersDown()
-						if key == walk.KeyControl {
-							v.hideKeyboardCursor()
-						}
 						actions := v.window.ShortcutActions()
 						for i := 0; i < actions.Len(); i++ {
 							action := actions.At(i)

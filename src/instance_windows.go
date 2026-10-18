@@ -71,8 +71,8 @@ func acquireViewerInstance(paths []string) (*viewerInstance, bool, error) {
 		return nil, false, err
 	}
 	name := syscall.StringToUTF16Ptr("Local\\" + identity)
-	// The bundled x/sys wrapper discards ERROR_ALREADY_EXISTS on success.
-	// Preserve it here to distinguish the owner from subsequent launches.
+	// Preserve ERROR_ALREADY_EXISTS even when CreateMutex returns a valid
+	// handle, to distinguish the owner from subsequent launches.
 	rawHandle, _, createErr := createInstanceMutexProc.Call(0, 1, uintptr(unsafe.Pointer(name)))
 	runtime.KeepAlive(name)
 	if rawHandle == 0 {

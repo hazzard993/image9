@@ -29,8 +29,10 @@ func (v *viewer) captureGapKeyboard() error {
 				message := (*win.MSG)(data)
 				switch message.Message {
 				case win.WM_KEYDOWN, win.WM_SYSKEYDOWN:
-					v.hideKeyboardCursor()
 					key := walk.Key(message.WParam)
+					if key != walk.KeyControl {
+						v.hideKeyboardCursor()
+					}
 					if message.LParam&(1<<30) == 0 || key != walk.KeyG && key != walk.KeyW {
 						if v.placingWrap {
 							v.handleWrapKey(key)

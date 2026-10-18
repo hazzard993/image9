@@ -373,4 +373,19 @@ func exerciseSpatialLoading(t *testing.T) {
 	if v.cursorHidden {
 		t.Fatal("mouse movement did not restore the cursor")
 	}
+	if err := v.installKeyboardCursor(); err != nil {
+		t.Fatal(err)
+	}
+	defer v.closeKeyboardCursor()
+	win.PostMessage(v.canvas.Handle(), win.WM_KEYDOWN, uintptr(walk.KeyControl), 0)
+	var controlMessage win.MSG
+	if !win.PeekMessage(&controlMessage, v.canvas.Handle(), win.WM_KEYDOWN, win.WM_KEYDOWN, win.PM_REMOVE) || v.cursorHidden {
+		t.Fatal("Ctrl alone hid the cursor")
+	}
+	v.beginGapInput()
+	win.PostMessage(v.canvas.Handle(), win.WM_KEYDOWN, uintptr(walk.KeyControl), 0)
+	if !win.PeekMessage(&controlMessage, v.canvas.Handle(), win.WM_KEYDOWN, win.WM_KEYDOWN, win.PM_REMOVE) || v.cursorHidden {
+		t.Fatal("Ctrl alone hid the cursor during captured input")
+	}
+	v.endGapInput(false)
 }
