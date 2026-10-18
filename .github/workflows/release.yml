@@ -1,0 +1,79 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CGO_ENABLED: '0'
+      GOARCH: amd64
+      GOOS: windows
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify the release tag belongs to main
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v\d+\.\d+\.\d+$') {
+            throw 'Release tags must use vMAJOR.MINOR.PATCH, for example v0.1.1.'
+          }
+          git fetch origin main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch main.' }
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'The tagged commit must be part of main.' }
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build executable with manifest and icon
+        run: .\build.ps1
+
+      - name: Test
+        run: go test -timeout 3m ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:GITHUB_REF_NAME
+          $hash = (Get-FileHash dist/image9.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  image9.exe" | Set-Content dist/image9.exe.sha256 -Encoding ascii
+
+          gh release view $tag --json isDraft --jq '.isDraft'
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --verify-tag --title "image9 $tag" --draft --generate-notes --notes 'Download image9.exe below and run it on Windows x64. No installation or build tools are required. The SHA-256 checksum is included as a separate download.'
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the release draft.' }
+          }
+          gh release upload $tag dist/image9.exe dist/image9.exe.sha256 --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload release assets.' }
+          gh release edit $tag --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release.' }

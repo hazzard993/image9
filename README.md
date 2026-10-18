@@ -17,6 +17,21 @@ The build script embeds the Windows application manifest and creates a standalon
 
 The coloured-square icon is embedded from `assets/image9.ico` at sizes from 16px to 256px. Its editable vector source and PNG preview are in `assets/`; regenerate them with `.\tools\Generate-Icon.ps1` before building.
 
+## Releases
+
+Download the ready-to-run Windows executable from [GitHub Releases](https://github.com/hazzard993/image9/releases/latest).
+
+GitHub Actions builds and tests pushes to `main`. To publish a release, tag a commit already on `main` and push the tag:
+
+```powershell
+git switch main
+git pull --ff-only
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+Use a new `vMAJOR.MINOR.PATCH` tag for each release. The workflow verifies that the tagged commit belongs to `main`, builds `image9.exe` with its icon, runs tests and vet, then publishes the executable and a SHA-256 checksum. A manual workflow run builds and tests without publishing a release.
+
 ## Controls
 
 Images share a spatial canvas at their original relative sizes. They start in a horizontal strip; a draggable right-hand boundary can wrap them into rows. Opening or dropping files appends them in selection order. The fixed-width details area shows the selected image's dimensions and file size, plus the workspace zoom. Click an image to select it.
