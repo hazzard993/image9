@@ -34,6 +34,8 @@ type viewer struct {
 	interpolationButton *walk.PushButton
 	palette             *walk.ImageView
 	backgroundIndex     int
+	dark                bool
+	themeBrush          *walk.SolidColorBrush
 	rendered            renderKey
 	files               []string
 	path                string
@@ -50,7 +52,8 @@ type renderKey struct {
 }
 
 func main() {
-	v := &viewer{fit: true, scale: 1}
+	v := &viewer{fit: true, scale: 1, dark: loadDarkMode()}
+	setNativeAppTheme(v.dark)
 	err := (MainWindow{
 		AssignTo: &v.window, Title: "Quick Image Viewer", Size: Size{Width: 1000, Height: 740}, MinSize: Size{Width: 800, Height: 320},
 		Layout: VBox{MarginsZero: true, SpacingZero: true},
@@ -64,6 +67,11 @@ func main() {
 				Action{Text: "Next", Shortcut: Shortcut{Key: walk.KeyRight}, OnTriggered: func() { v.navigate(1) }},
 				Action{Text: "Fit to window", Shortcut: Shortcut{Key: walk.KeyF}, OnTriggered: v.fitImage},
 				Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: v.actualSize},
+				Action{Text: "Dark mode", Checkable: true, Checked: v.dark, OnTriggered: func() {
+					v.dark = !v.dark
+					v.applyTheme()
+					saveDarkMode(v.dark)
+				}},
 			}},
 		},
 		Children: []Widget{
@@ -105,6 +113,7 @@ func main() {
 		walk.MsgBox(nil, "Unable to start", err.Error(), walk.MsgBoxIconError)
 		return
 	}
+	v.applyTheme()
 	v.canvas.MouseWheel().Attach(func(x, y int, b walk.MouseButton) {
 		if walk.MouseWheelEventDelta(b) > 0 {
 			v.zoom(1.25)
@@ -266,7 +275,7 @@ func (v *viewer) paint(c *walk.Canvas, _ walk.Rectangle) error {
 		}
 		v.bitmap, v.rendered = bitmap, key
 	}
-	status := fmt.Sprintf("%s  •  %d × %d  •  %.0f%%  •  %d images in folder", filepath.Base(v.path), v.width, v.height, s*100, len(v.files))
+	status := fmt.Sprintf("%d × %d  •  %.0f%%", v.width, v.height, s*100)
 	if v.status.Text() != status {
 		v.status.SetText(status)
 	}
@@ -331,7 +340,7 @@ func (v *viewer) backgroundPalette() ImageView {
 				defer brush.Dispose()
 				return c.FillRectangle(brush, rect)
 			}
-			if err := fill(walk.RGB(240, 240, 240), v.palette.ClientBounds()); err != nil {
+			if err := fill(themeSurface(v.dark), v.palette.ClientBounds()); err != nil {
 				return err
 			}
 			for i, colour := range backgroundColours {
