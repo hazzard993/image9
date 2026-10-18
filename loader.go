@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/lxn/walk"
 	"github.com/lxn/win"
 )
 
@@ -160,6 +161,8 @@ func loadPumpProc(hwnd win.HWND, message uint32, wParam uintptr, lParam unsafe.P
 	if value, ok := loadersByWindow.Load(hwnd); ok {
 		v := value.(*viewer)
 		switch message {
+		case win.WM_ACTIVATE:
+			v.setBoundsHighlight(wParam&0xffff != 0 && walk.ModifiersDown()&walk.ModControl != 0)
 		case imageReadyMessage:
 			v.finishLoad()
 			return 0

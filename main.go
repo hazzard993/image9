@@ -32,6 +32,7 @@ type viewer struct {
 	loadID              uint64
 	pendingPath         string
 	loading             bool
+	highlightBounds     bool
 	source              *decodedImage
 	linear              bool
 	interpolationButton *walk.PushButton
@@ -62,6 +63,7 @@ func main() {
 				Action{Text: "Previous", Shortcut: Shortcut{Key: walk.KeyLeft}, OnTriggered: func() { v.navigate(-1) }},
 				Action{Text: "Next", Shortcut: Shortcut{Key: walk.KeyRight}, OnTriggered: func() { v.navigate(1) }},
 				Action{Text: "Fit to window", Shortcut: Shortcut{Key: walk.KeyF}, OnTriggered: v.fitImage},
+				Action{Text: "Reset zoom", Shortcut: Shortcut{Key: walk.KeyR}, OnTriggered: v.fitImage},
 				Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: v.actualSize},
 				Action{Text: "Focus image", Shortcut: Shortcut{Key: walk.KeyEscape}, OnTriggered: v.focusImage},
 				Action{Text: "Dark mode", Checkable: true, Checked: v.dark, OnTriggered: func() {
@@ -94,7 +96,8 @@ func main() {
 				},
 			},
 			Composite{AssignTo: &v.footer, Layout: HBox{Margins: Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}, Spacing: 4}, Children: []Widget{
-				Label{AssignTo: &v.status, StretchFactor: 1, Text: "Open an image • Ctrl+O"},
+				Label{AssignTo: &v.status, MinSize: Size{Width: 180}, MaxSize: Size{Width: 180}, EllipsisMode: EllipsisEnd, Text: "Open an image • Ctrl+O"},
+				HSpacer{},
 				PushButton{Text: "Open…", OnClicked: v.openDialog},
 				PushButton{Text: "‹ Previous", OnClicked: func() { v.navigate(-1) }},
 				PushButton{Text: "Next ›", OnClicked: func() { v.navigate(1) }},
@@ -128,6 +131,7 @@ func main() {
 	v.window.Starting().Attach(v.focusImage)
 	v.applyTheme()
 	installLoadPump(v)
+	v.installBoundsKeys()
 	v.canvas.MouseWheel().Attach(func(x, y int, b walk.MouseButton) {
 		if walk.MouseWheelEventDelta(b) > 0 {
 			v.zoom(1.25)
@@ -251,6 +255,7 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	x := math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX)
 	y := math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY)
 	background := v.canvas.Background().(*walk.SolidColorBrush).Color()
+	v.renderer.highlightBounds = v.highlightBounds
 	err := v.renderer.draw(v.canvas.Handle(), b.Width, b.Height, v.source, s, x, y, v.linear, win.COLORREF(background))
 	if err == errRecreateTarget {
 		v.canvas.Invalidate()
@@ -280,6 +285,28 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 		v.rendererLabel = label
 	}
 	return nil
+}
+
+func (v *viewer) setBoundsHighlight(held bool) {
+	if v.highlightBounds != held {
+		v.highlightBounds = held
+		v.canvas.Invalidate()
+	}
+}
+
+func (v *viewer) installBoundsKeys() {
+	update := func(walk.Key) { v.setBoundsHighlight(walk.ModifiersDown()&walk.ModControl != 0) }
+	var attach func(walk.Window)
+	attach = func(window walk.Window) {
+		window.KeyDown().Attach(update)
+		window.KeyUp().Attach(update)
+		if container, ok := window.(walk.Container); ok {
+			for i := 0; i < container.Children().Len(); i++ {
+				attach(container.Children().At(i))
+			}
+		}
+	}
+	attach(v.window)
 }
 
 func (v *viewer) toggleInterpolation() {

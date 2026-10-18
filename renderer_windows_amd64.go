@@ -64,9 +64,12 @@ type gpuRenderer struct {
 	image           *decodedImage
 	width, height   int
 	hardware        bool
+	highlightBounds bool
+	boundsBrush     *d2dObject
 }
 
 func (r *gpuRenderer) disposeTarget() {
+	release(&r.boundsBrush)
 	for i := range r.tiles {
 		release(&r.tiles[i].bitmap)
 	}
@@ -171,6 +174,12 @@ func (r *gpuRenderer) draw(hwnd win.HWND, width, height int, im *decodedImage, s
 	if err := r.upload(im); err != nil {
 		return err
 	}
+	if r.highlightBounds && im != nil && r.boundsBrush == nil {
+		blue := d2dColour{r: 0.1, g: 0.5, b: 1, a: 1}
+		if err := d2dError("Create bounds brush", r.target.call(8, uintptr(unsafe.Pointer(&blue)), 0, uintptr(unsafe.Pointer(&r.boundsBrush)))); err != nil {
+			return err
+		}
+	}
 	colour := d2dColour{float32(background&255) / 255, float32((background>>8)&255) / 255, float32((background>>16)&255) / 255, 1}
 	r.target.call(48) // BeginDraw
 	r.target.call(47, uintptr(unsafe.Pointer(&colour)))
@@ -185,6 +194,10 @@ func (r *gpuRenderer) draw(hwnd win.HWND, width, height int, im *decodedImage, s
 		}
 		src := d2dRect{float32(tile.core.Min.X - tile.pixels.Min.X), float32(tile.core.Min.Y - tile.pixels.Min.Y), float32(tile.core.Max.X - tile.pixels.Min.X), float32(tile.core.Max.Y - tile.pixels.Min.Y)}
 		r.target.call(26, uintptr(unsafe.Pointer(tile.bitmap)), uintptr(unsafe.Pointer(&dst)), uintptr(math.Float32bits(1)), mode, uintptr(unsafe.Pointer(&src)))
+	}
+	if r.highlightBounds && im != nil {
+		bounds := d2dRect{float32(x), float32(y), float32(x + float64(im.width)*scale), float32(y + float64(im.height)*scale)}
+		r.target.call(16, uintptr(unsafe.Pointer(&bounds)), uintptr(unsafe.Pointer(r.boundsBrush)), uintptr(math.Float32bits(2)), 0)
 	}
 	hr := r.target.call(49, 0, 0) // EndDraw presents the completed frame.
 	if uint32(hr) == 0x8899000c {

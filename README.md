@@ -23,7 +23,8 @@ The build script embeds the Windows application manifest and creates a standalon
 - **Q:** close the viewer.
 - **Mouse wheel / + / − buttons:** zoom, between 1% and 3200%.
 - **Drag with the left mouse button:** pan.
-- **F / Fit:** fit inside the window, without enlarging small images.
+- **Hold Ctrl:** show a blue outline around the image bounds.
+- **F / R / Fit:** reset zoom to fit inside the window and centre the image, without enlarging small images.
 - **1 / 100%:** display at one image pixel per screen pixel.
 - **Linear: On / Off:** toggle bilinear interpolation (smooth scaling) or nearest-neighbor scaling (crisp pixels). Starts disabled and stays selected while browsing images.
 - **Colour swatches:** the three small colour buttons in the bottom toolbar choose charcoal (`#1E1E21`), soft white (`#EEEEEE`), or soft black (`#121212`). Hover for a description. Also applies behind transparent images and stays selected while browsing.

@@ -115,6 +115,17 @@ func checkDirect2DPixels(t *testing.T, factory *d2dObject) {
 	if p := linear[(2*8+3)*4]; p == 0 || p == 255 {
 		t.Fatalf("linear interpolation failed: %v", linear)
 	}
+	r.highlightBounds = true
+	outlined := read(im, 4, false, 0)
+	edge := (2 * 8) * 4
+	if outlined[edge] < 200 || outlined[edge+2] > 80 {
+		t.Fatalf("blue bounds outline missing: %v", outlined[edge:edge+4])
+	}
+	r.highlightBounds = false
+	plain := read(im, 4, false, 0)
+	if plain[edge] != 0 {
+		t.Fatal("bounds outline remained after release")
+	}
 	alpha := read(&decodedImage{width: 1, height: 1, pixels: []byte{0, 0, 128, 128}}, 1, false, 0xffffff)
 	if alpha[0] != 127 || alpha[1] != 127 || alpha[2] != 255 {
 		t.Fatalf("alpha/color output: %v", alpha[:4])
