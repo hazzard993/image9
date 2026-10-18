@@ -2,6 +2,12 @@
 
 package main
 
+func (v *viewer) copyPathInInspectMode() {
+	if v.highlightBounds || v.ctrlViewPinned {
+		v.copyFocusedPath()
+	}
+}
+
 func (v *viewer) handleCtrlC() {
 	if v.ctrlViewPinned {
 		v.copyFocusedPath()

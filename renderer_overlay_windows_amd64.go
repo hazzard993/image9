@@ -124,7 +124,7 @@ func (r *gpuRenderer) drawWorkspaceOverlay(width, height int) {
 	}
 	r.drawImageCaptions(true)
 	if len(r.shortcutLines) > 0 && r.textFormat != nil {
-		r.textFormat.call(3, 0) // Left aligned at the fixed canvas anchor.
+		r.textFormat.call(3, 0) // Left aligned above the workspace origin.
 		for index, line := range r.shortcutLines {
 			top := r.shortcutY + float32(index*22)
 			bounds := d2dRect{left: r.shortcutX, top: top, right: r.shortcutX + 420, bottom: top + 22}

@@ -123,16 +123,17 @@ func (v *viewer) prepareHoverCaption(scale, x, y float64, width, height int) {
 	if v.customGap {
 		gap = v.imageGap
 	}
-	v.renderer.shortcutLines = []string{hint, "C - Copy focused image path", fmt.Sprintf("G - Gap: %d px (G again: 0 / default)", gap), "L - Image list / reorder", "O - Open containing folder"}
+	v.renderer.shortcutLines = []string{hint, "C - Copy focused image path", fmt.Sprintf("G - Gap: %d px (G again: 0 / default)", gap), "L - Image list / reorder", "O - Open containing folder", "F - Fit all images"}
 	if v.ctrlViewPinned {
 		v.renderer.shortcutLines[0] = "H / J / K / L - Left / down / up / right"
 		v.renderer.shortcutLines[3] = "L - Image list / reorder (after Esc)"
 		v.renderer.shortcutLines = append(v.renderer.shortcutLines, "Esc - Exit Inspect Mode")
 		v.renderer.shortcutLines = append(v.renderer.shortcutLines, "T - Toggle filename labels")
 	}
-	// UI hints use a fixed canvas anchor, independent of image bounds/camera.
-	v.renderer.shortcutX = 0
-	v.renderer.shortcutY = 0
+	// Bottom-align the shortcut block to workspace (0, 0), where the first
+	// image begins. The same anchor exists when the workspace is empty.
+	v.renderer.shortcutX = float32(x)
+	v.renderer.shortcutY = float32(y) - float32(len(v.renderer.shortcutLines)*22)
 	if !v.showFilenameLabels {
 		return
 	}

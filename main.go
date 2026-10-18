@@ -120,7 +120,8 @@ func main() {
 				Action{Text: "Toggle filename labels", Shortcut: Shortcut{Key: walk.KeyT}, OnTriggered: v.toggleCtrlText},
 				Action{Text: "Down in I mode", Shortcut: Shortcut{Key: walk.KeyJ}, OnTriggered: v.handleJ},
 				Action{Text: "Up in I mode", Shortcut: Shortcut{Key: walk.KeyK}, OnTriggered: v.handleK},
-				Action{Text: "Enter Ctrl view", Shortcut: Shortcut{Key: walk.KeyI}, OnTriggered: v.enterCtrlView},
+				Action{Text: "Enter Inspect Mode", Shortcut: Shortcut{Key: walk.KeyI}, OnTriggered: v.enterCtrlView},
+				Action{Text: "Copy selected path in Inspect Mode", Shortcut: Shortcut{Key: walk.KeyReturn}, OnTriggered: v.copyPathInInspectMode},
 				Menu{Text: "Zoom", Items: []MenuItem{
 					Action{AssignTo: &v.zoomToCursorAction, Text: "Zoom to cursor", Checkable: true, Checked: v.zoomToCursor, OnTriggered: v.toggleZoomToCursor},
 					Action{Text: "Zoom in", Shortcut: Shortcut{Key: walk.KeyOEMPlus}, OnTriggered: func() { v.zoom(1.25) }},
@@ -285,6 +286,7 @@ func main() {
 		handler func()
 	}{
 		{walk.KeyC, v.handleCtrlC}, {walk.KeyG, v.beginGapInput},
+		{walk.KeyReturn, v.copyPathInInspectMode},
 		{walk.KeyT, v.toggleCtrlText},
 		{walk.KeyJ, v.handleJ}, {walk.KeyK, v.handleK}, {walk.KeyL, v.handleCtrlL},
 		{walk.KeyLeft, func() { v.navigate(-1) }},
@@ -746,7 +748,7 @@ func (v *viewer) enterCtrlView() {
 	v.focusImage()
 	v.ctrlViewPinned = true
 	v.setBoundsHighlight(true)
-	v.notifyAction("Ctrl view enabled - Esc to exit")
+	v.notifyAction("Inspect Mode enabled - Esc to exit")
 }
 
 func (v *viewer) escapeMode() {
@@ -755,7 +757,7 @@ func (v *viewer) escapeMode() {
 	v.setBoundsHighlight(walk.ModifiersDown()&walk.ModControl != 0)
 	v.focusImage()
 	if wasPinned {
-		v.notifyAction("Ctrl view exited")
+		v.notifyAction("Inspect Mode exited")
 	}
 }
 

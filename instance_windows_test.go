@@ -116,28 +116,28 @@ func TestCaptionsHiddenWithoutCtrl(t *testing.T) {
 func TestCtrlViewLabelDefaults(t *testing.T) {
 	v := &viewer{renderer: &gpuRenderer{}, highlightBounds: true, workspace: []workspaceImage{{path: "sample.png", width: 64, height: 64, image: &decodedImage{width: 64, height: 64}}}}
 	v.prepareHoverCaption(1, 400, 0, 800, 600)
-	if len(v.renderer.captions) != 0 || len(v.renderer.shortcutLines) != 5 || v.renderer.shortcutLines[0] != "H / T - Show filename labels" || v.renderer.shortcutLines[1] != "C - Copy focused image path" || v.renderer.shortcutLines[3] != "L - Image list / reorder" || v.renderer.shortcutLines[4] != "O - Open containing folder" {
+	if len(v.renderer.captions) != 0 || len(v.renderer.shortcutLines) != 6 || v.renderer.shortcutLines[0] != "H / T - Show filename labels" || v.renderer.shortcutLines[1] != "C - Copy focused image path" || v.renderer.shortcutLines[3] != "L - Image list / reorder" || v.renderer.shortcutLines[4] != "O - Open containing folder" {
 		t.Fatal("Ctrl view did not show H, C and G with labels hidden")
 	}
 	v.showFilenameLabels = true
 	v.prepareHoverCaption(1, 400, 0, 800, 600)
-	if len(v.renderer.captions) != 1 || len(v.renderer.shortcutLines) != 5 || v.renderer.shortcutLines[0] != "H / T - Hide filename labels" {
+	if len(v.renderer.captions) != 1 || len(v.renderer.shortcutLines) != 6 || v.renderer.shortcutLines[0] != "H / T - Hide filename labels" {
 		t.Fatal("enabled labels did not retain the H reminder")
 	}
-	if v.renderer.shortcutX != 0 || v.renderer.shortcutY != 0 {
-		t.Fatal("shortcut hints were not anchored to the canvas")
+	if v.renderer.shortcutX != 400 || v.renderer.shortcutY+float32(len(v.renderer.shortcutLines)*22) != 0 {
+		t.Fatal("shortcut hints were not bottom aligned to the first image origin")
 	}
 }
 
 func TestShortcutHintsWithEmptyWorkspace(t *testing.T) {
 	v := &viewer{renderer: &gpuRenderer{}, highlightBounds: true}
 	v.prepareHoverCaption(1, 400, 300, 800, 600)
-	if len(v.renderer.shortcutLines) != 5 || v.renderer.shortcutX != 0 || v.renderer.shortcutY != 0 {
-		t.Fatal("empty workspace did not keep hints at the fixed canvas anchor")
+	if len(v.renderer.shortcutLines) != 6 || v.renderer.shortcutX != 400 || v.renderer.shortcutY+float32(len(v.renderer.shortcutLines)*22) != 300 {
+		t.Fatal("empty workspace did not bottom align hints to the origin")
 	}
 	v.ctrlViewPinned = true
 	v.prepareHoverCaption(2, 120, 240, 800, 600)
-	if len(v.renderer.shortcutLines) != 7 || v.renderer.shortcutX != 0 || v.renderer.shortcutY != 0 {
-		t.Fatal("Inspect Mode moved the shortcut anchor")
+	if len(v.renderer.shortcutLines) != 8 || v.renderer.shortcutX != 120 || v.renderer.shortcutY+float32(len(v.renderer.shortcutLines)*22) != 240 {
+		t.Fatal("Inspect Mode did not bottom align hints to the origin")
 	}
 }

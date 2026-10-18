@@ -298,6 +298,23 @@ func checkWorkspaceOverlayPixels(t *testing.T, wic, factory *d2dObject, format *
 	if pixels[edge] < 230 || pixels[edge+1] < 230 || pixels[edge+2] < 230 {
 		t.Fatal("shared edge was not drawn with the white selection above blue bounds")
 	}
+	cover := &decodedImage{width: 100, height: 40, pixels: make([]byte, 100*40*4)}
+	for i := 0; i < len(cover.pixels); i += 4 {
+		cover.pixels[i+2], cover.pixels[i+3] = 255, 255
+	}
+	for _, selected := range []bool{false, true} {
+		// The later opaque image covers the earlier image's right boundary.
+		// Both blue and selected white outlines must survive above its pixels.
+		if err := r.drawScene(0, width, height, []sceneImage{{image: square, x: 20, selected: selected}, {image: cover, x: 35}}, 1, 0, 0, false, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := d2dError("Read outline above overlapping image", bitmap.call(7, 0, width*4, uintptr(len(pixels)), uintptr(unsafe.Pointer(&pixels[0])))); err != nil {
+			t.Fatal(err)
+		}
+		if pixels[edge] < 230 || selected && (pixels[edge+1] < 230 || pixels[edge+2] < 230) || !selected && pixels[edge+2] > 80 {
+			t.Fatalf("outline was covered by a later image (selected=%v): %v", selected, pixels[edge:edge+4])
+		}
+	}
 }
 
 func TestTileCoverageAndGutters(t *testing.T) {

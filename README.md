@@ -23,7 +23,7 @@ Images share a spatial canvas at their original relative sizes. They start in a 
 - Opening files through another launch sends them to the existing viewer and appends them to its workspace.
 - Newly added images are selected and centred as they finish loading. Zoom is reduced if needed to show the whole image.
 - Dragged and dropped images are appended without changing selection or moving the existing view.
-- **U (also while holding Ctrl):** unset the focused image. In Ctrl view, the focused image has a white outline; other images have blue outlines.
+- **U (also while holding Ctrl):** unset the focused image. In Inspect Mode, the focused image has a white outline; other images have blue outlines.
 - **W (also while holding Ctrl):** enter wrap placement mode, preserving any existing limit until you left-click to set the width. The preview snaps to 8 image pixels. Press W again while placing to clear the limit and return to a single row; Escape cancels placement without changing the limit.
 - In wrap mode, type a pixel width and press Enter to apply it exactly (0 clears wrapping). Backspace edits; invalid input or Escape preserves the previous width. Left-click placement continues to use 8px snapping.
 - Gap and wrap inputs accept calculations with `+`, `-`, `*`, `/`, `%` and parentheses. A leading operator uses the current setting, e.g. `*2` doubles it or `-8` subtracts 8. Results round to the nearest pixel; invalid calculations leave settings unchanged.
@@ -33,6 +33,7 @@ Images share a spatial canvas at their original relative sizes. They start in a 
 - All four arrow keys also navigate while Ctrl is held. The focused image's white outline is drawn above blue image outlines.
 - **File → Clear workspace / Ctrl+N:** remove all images and cancel pending loads.
 - **C:** copy the focused image's full path. With no focus, reports "No focus target, nothing copied" without changing the clipboard.
+- **Enter in Inspect Mode:** copy the selected image's full path. Enter still submits gap or wrap calculations in Input Mode.
 - **Ctrl+C in normal mode:** clear the workspace. In persistent Inspect Mode (I), Ctrl+C copies the focused image's path. C alone always copies the focused path.
 - **Hold Ctrl for the blue line at the right:** click and drag it left/right to set the workspace's wrapping width, snapping every 8 image pixels. Images flow left to right into new rows, with consistent gaps. Images wider than the limit occupy their own row without being resized. **View → Layout → Single row** resets wrapping. Clearing the workspace also resets the boundary.
 - **Hold Ctrl for image labels:** filename, pixel dimensions, and file size appear below each image, left-aligned. All labels appear above the images; hovering an image's bounds while Ctrl is held brings its label above the other labels. Labels are hidden when Ctrl is released.
@@ -45,10 +46,10 @@ Images share a spatial canvas at their original relative sizes. They start in a 
 - **Drag with the left mouse button:** pan.
 - **Middle-mouse drag:** pan while the eyedropper is active, without leaving picking mode. Also works in normal viewing mode.
 - **Hold Ctrl:** show blue outlines around each image's bounds.
-- **I:** enter Ctrl view without holding Ctrl, including path copying, image removal, labels, and wrap controls. Escape exits this mode.
+- **I:** enter Inspect Mode without holding Ctrl, including path copying, image removal, labels, and wrap controls. Escape exits this mode.
 - **H / J / K / L in I mode:** navigate left / down / up / right. Outside I mode, H toggles labels and L opens image order as usual.
 - **Hold Ctrl:** show left-aligned H, C, G and L shortcut hints above the first image.
-- **H (also while holding Ctrl):** toggle filename labels in Ctrl view. Labels start hidden. The H reminder, outlines, and wrap bar remain visible; the choice lasts until the viewer closes.
+- **H (also while holding Ctrl):** toggle filename labels in Inspect Mode. Labels start hidden. The H reminder, outlines, and wrap bar remain visible; the choice lasts until the viewer closes.
 - Action confirmations appear above the bottom-right controls for 2.5 seconds. A new action replaces the message and restarts its timer.
 - **Ctrl + left-click an image:** copy its full file path to the clipboard.
 - **Ctrl + right-click an image:** remove it from the workspace immediately, without a prompt. The file on disk is unchanged; remaining images close the gap.
