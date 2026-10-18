@@ -24,15 +24,18 @@ The build script embeds the Windows application manifest and creates a standalon
 - **F / Fit:** fit inside the window, without enlarging small images.
 - **1 / 100%:** display at one image pixel per screen pixel.
 - **Linear: On / Off:** toggle bilinear interpolation (smooth scaling) or nearest-neighbor scaling (crisp pixels). Starts disabled and stays selected while browsing images.
-- **Background — Current / White / Black:** choose the original charcoal (`#1E1E21`), soft white (`#EEEEEE`), or soft black (`#121212`). Also applies behind transparent images and stays selected while browsing.
+- **Colour swatches:** the three small colour buttons in the bottom toolbar choose charcoal (`#1E1E21`), soft white (`#EEEEEE`), or soft black (`#121212`). Hover for a description. Also applies behind transparent images and stays selected while browsing.
 
 Supports JPEG, PNG, GIF, BMP, TIFF, and WebP. Animated and multipage images display their first frame/page. EXIF orientation and color profile management are not implemented. Images decode on demand; very large files may briefly pause the interface. No image files are modified.
+
+Scaled images are cached for fast dragging: pan redraws reuse the native bitmap. Scaled images above 64 MiB or 16384 pixels on either axis use a viewport cache with 256-pixel margins instead. This limits cache memory at high zoom. Frames remain double buffered to prevent flashing.
 
 ## Development
 
 ```powershell
 go test ./...
 go vet ./...
+go test -run '^$' -bench BenchmarkDrag1440p -benchmem
 ```
 
 Run the build script before using `go run .` so that the required common-controls manifest is embedded. Source: `main.go`; application manifest: `app.manifest`.

@@ -26,11 +26,14 @@ import (
 type viewer struct {
 	window              *walk.MainWindow
 	canvas              *walk.CustomWidget
+	footer              *walk.Composite
 	status              *walk.Label
 	bitmap              *walk.Bitmap
 	source              image.Image
 	linear              bool
 	interpolationButton *walk.PushButton
+	palette             *walk.ImageView
+	backgroundIndex     int
 	rendered            renderKey
 	files               []string
 	path                string
@@ -50,7 +53,7 @@ func main() {
 	v := &viewer{fit: true, scale: 1}
 	err := (MainWindow{
 		AssignTo: &v.window, Title: "Quick Image Viewer", Size: Size{Width: 1000, Height: 740}, MinSize: Size{Width: 800, Height: 320},
-		Layout: VBox{MarginsZero: true, Spacing: 0},
+		Layout: VBox{MarginsZero: true, SpacingZero: true},
 		MenuItems: []MenuItem{
 			Menu{Text: "&File", Items: []MenuItem{
 				Action{Text: "&Open…", Shortcut: Shortcut{Modifiers: walk.ModControl, Key: walk.KeyO}, OnTriggered: v.openDialog},
@@ -64,24 +67,6 @@ func main() {
 			}},
 		},
 		Children: []Widget{
-			Composite{Layout: HBox{}, Children: []Widget{
-				PushButton{Text: "Open…", OnClicked: v.openDialog},
-				PushButton{Text: "‹ Previous", OnClicked: func() { v.navigate(-1) }},
-				PushButton{Text: "Next ›", OnClicked: func() { v.navigate(1) }},
-				HSpacer{},
-				PushButton{Text: "−", OnClicked: func() { v.zoom(1 / 1.25) }},
-				PushButton{Text: "+", OnClicked: func() { v.zoom(1.25) }},
-				PushButton{Text: "Fit", OnClicked: v.fitImage},
-				PushButton{Text: "100%", OnClicked: v.actualSize},
-				PushButton{AssignTo: &v.interpolationButton, Text: "Linear: Off", ToolTipText: "Toggle bilinear smoothing / nearest-neighbor pixels", OnClicked: v.toggleInterpolation},
-			}},
-			Composite{Layout: HBox{}, Children: []Widget{
-				Label{Text: "Background:"},
-				PushButton{Text: "Current", ToolTipText: "Original charcoal (#1E1E21)", OnClicked: func() { v.setBackground(walk.RGB(30, 30, 33)) }},
-				PushButton{Text: "White", ToolTipText: "Soft white (#EEEEEE)", OnClicked: func() { v.setBackground(walk.RGB(238, 238, 238)) }},
-				PushButton{Text: "Black", ToolTipText: "Soft black (#121212)", OnClicked: func() { v.setBackground(walk.RGB(18, 18, 18)) }},
-				HSpacer{},
-			}},
 			CustomWidget{AssignTo: &v.canvas, Background: SolidColorBrush{Color: walk.RGB(30, 30, 33)},
 				PaintMode: PaintBuffered, InvalidatesOnResize: true, PaintPixels: v.paint,
 				OnMouseDown: func(x, y int, b walk.MouseButton) {
@@ -102,7 +87,18 @@ func main() {
 					}
 				},
 			},
-			Label{AssignTo: &v.status, Text: "Open an image or drop one here • Ctrl+O: Open • ← →: Browse • Wheel: Zoom • Drag: Pan", MinSize: Size{Height: 26}},
+			Composite{AssignTo: &v.footer, Layout: HBox{Margins: Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}, Spacing: 4}, Children: []Widget{
+				Label{AssignTo: &v.status, StretchFactor: 1, Text: "Open an image • Ctrl+O"},
+				PushButton{Text: "Open…", OnClicked: v.openDialog},
+				PushButton{Text: "‹ Previous", OnClicked: func() { v.navigate(-1) }},
+				PushButton{Text: "Next ›", OnClicked: func() { v.navigate(1) }},
+				PushButton{Text: "−", OnClicked: func() { v.zoom(1 / 1.25) }},
+				PushButton{Text: "+", OnClicked: func() { v.zoom(1.25) }},
+				PushButton{Text: "Fit", OnClicked: v.fitImage},
+				PushButton{Text: "100%", OnClicked: v.actualSize},
+				PushButton{AssignTo: &v.interpolationButton, Text: "Linear: Off", ToolTipText: "Toggle bilinear smoothing / nearest-neighbor pixels", OnClicked: v.toggleInterpolation},
+				v.backgroundPalette(),
+			}},
 		},
 	}).Create()
 	if err != nil {
@@ -256,8 +252,9 @@ func (v *viewer) paint(c *walk.Canvas, _ walk.Rectangle) error {
 		return nil
 	}
 	key := renderKey{width: b.Width, height: b.Height, scale: s,
-		x: (float64(b.Width)-float64(v.width)*s)/2 + v.panX,
-		y: (float64(b.Height)-float64(v.height)*s)/2 + v.panY, linear: v.linear}
+		x: math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX),
+		y: math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY), linear: v.linear}
+	key, position := planImageRender(v.source.Bounds(), key)
 	if v.bitmap == nil || v.rendered != key {
 		im := renderImage(v.source, key)
 		bitmap, err := walk.NewBitmapFromImageForDPI(im, 96)
@@ -273,7 +270,7 @@ func (v *viewer) paint(c *walk.Canvas, _ walk.Rectangle) error {
 	if v.status.Text() != status {
 		v.status.SetText(status)
 	}
-	return c.DrawImagePixels(v.bitmap, walk.Point{})
+	return c.DrawImagePixels(v.bitmap, walk.Point{X: position.X, Y: position.Y})
 }
 
 func (v *viewer) toggleInterpolation() {
@@ -300,8 +297,82 @@ func (v *viewer) setBackground(color walk.Color) {
 	v.canvas.Invalidate()
 }
 
-// Render only the visible viewport, so a high zoom never allocates an enormous image.
-// The bitmap is cached by the caller until the view or interpolation changes.
+var backgroundColours = [...]walk.Color{walk.RGB(30, 30, 33), walk.RGB(238, 238, 238), walk.RGB(18, 18, 18)}
+
+func (v *viewer) backgroundPalette() ImageView {
+	selectColour := func(index int) {
+		v.backgroundIndex = index
+		v.setBackground(backgroundColours[index])
+		v.palette.Invalidate()
+	}
+	return ImageView{
+		AssignTo: &v.palette, Alignment: AlignHNearVCenter, MinSize: Size{Width: 66, Height: 20}, MaxSize: Size{Width: 66, Height: 20},
+		ToolTipText: "Background: charcoal, soft white, soft black. Arrow keys change colour.",
+		OnMouseDown: func(x, y int, button walk.MouseButton) {
+			if button == walk.LeftButton && x >= 0 && x < 66 && y >= 0 && y < 20 && x%22 < 20 {
+				v.palette.SetFocus()
+				selectColour(x / 22)
+			}
+		},
+		OnKeyDown: func(key walk.Key) {
+			switch key {
+			case walk.KeyLeft:
+				selectColour((v.backgroundIndex + 2) % 3)
+			case walk.KeyRight:
+				selectColour((v.backgroundIndex + 1) % 3)
+			}
+		},
+		Image: walk.NewPaintFuncImage(walk.Size{Width: 66, Height: 20}, func(c *walk.Canvas, _ walk.Rectangle) error {
+			fill := func(colour walk.Color, rect walk.Rectangle) error {
+				brush, err := walk.NewSolidColorBrush(colour)
+				if err != nil {
+					return err
+				}
+				defer brush.Dispose()
+				return c.FillRectangle(brush, rect)
+			}
+			if err := fill(walk.RGB(240, 240, 240), v.palette.ClientBounds()); err != nil {
+				return err
+			}
+			for i, colour := range backgroundColours {
+				border := walk.RGB(150, 150, 150)
+				if i == v.backgroundIndex {
+					border = walk.RGB(0, 120, 215)
+				}
+				for _, layer := range []struct {
+					colour walk.Color
+					inset  int
+				}{{border, 0}, {walk.RGB(255, 255, 255), 1}, {colour, 2}} {
+					if err := fill(layer.colour, walk.Rectangle{X: i*22 + layer.inset, Y: layer.inset, Width: 20 - 2*layer.inset, Height: 20 - 2*layer.inset}); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}),
+	}
+}
+
+// Cache the whole scaled image up to 64 MiB. Panning then only moves the native
+// bitmap, with no resampling, pixel allocations, or bitmap uploads per frame.
+// Above that limit, cache a viewport with overscan on a 256-pixel grid instead.
+// This bounds memory at extreme zoom and amortizes resampling across drag events.
+func planImageRender(bounds image.Rectangle, view renderKey) (renderKey, image.Point) {
+	w, h := math.Ceil(float64(bounds.Dx())*view.scale), math.Ceil(float64(bounds.Dy())*view.scale)
+	if w <= 16384 && h <= 16384 && w*h <= 16*1024*1024 {
+		return renderKey{width: int(w), height: int(h), scale: view.scale, linear: view.linear},
+			image.Pt(int(view.x), int(view.y))
+	}
+	const margin = 256
+	key := view
+	key.width += 2 * margin
+	key.height += 2 * margin
+	key.x = math.Floor(view.x/margin)*margin + margin
+	key.y = math.Floor(view.y/margin)*margin + margin
+	return key, image.Pt(int(view.x-key.x), int(view.y-key.y))
+}
+
+// Resample only on a cache miss (zoom, interpolation, new image, or overscan edge).
 func renderImage(src image.Image, key renderKey) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, key.width, key.height))
 	var interpolator draw.Transformer = draw.NearestNeighbor
