@@ -25,8 +25,9 @@ type decodedImage struct {
 	pixels        []byte
 }
 type loadRequest struct {
-	id   uint64
-	path string
+	id    uint64
+	path  string
+	space sourceColourSpace
 }
 type loadResult struct {
 	request loadRequest
@@ -70,6 +71,9 @@ func newImageLoader(notify func(), decode func(string, func() bool) (*decodedIma
 					files = []string{request.path}
 				}
 				im, err := decode(request.path, cancelled)
+				if err == nil && request.space != spaceSRGB {
+					err = convertSourceColourSpace(im, request.space, cancelled)
+				}
 				if cancelled() {
 					continue
 				}
@@ -89,13 +93,17 @@ func newImageLoader(notify func(), decode func(string, func() bool) (*decodedIma
 	}()
 	return l
 }
-func (l *imageLoader) request(path string) uint64 {
+func (l *imageLoader) request(path string, spaces ...sourceColourSpace) uint64 {
 	id := l.latest.Add(1)
 	select {
 	case <-l.requests:
 	default:
 	}
-	l.requests <- loadRequest{id: id, path: path}
+	space := spaceSRGB
+	if len(spaces) > 0 {
+		space = spaces[0]
+	}
+	l.requests <- loadRequest{id: id, path: path, space: space}
 	return id
 }
 func (l *imageLoader) close() { l.closed.Do(func() { close(l.stop) }) }
@@ -214,7 +222,11 @@ func (v *viewer) finishLoad() {
 			v.path, v.pendingPath = result.request.path, result.request.path
 			v.files = result.files
 			v.width, v.height = result.image.width, result.image.height
-			v.fitImage()
+			if v.preserveView {
+				v.canvas.Invalidate()
+			} else {
+				v.fitImage()
+			}
 			v.window.SetTitle(filepath.Base(v.path) + " — Quick Image Viewer")
 		default:
 			return

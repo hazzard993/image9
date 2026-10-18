@@ -28,7 +28,11 @@ func TestNativeThemeSwitch(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	v := &viewer{}
-	err := (MainWindow{AssignTo: &v.window, Visible: false, Layout: VBox{}, Children: []Widget{
+	err := (MainWindow{AssignTo: &v.window, Visible: false, Layout: VBox{}, MenuItems: []MenuItem{
+		Menu{Text: "View", Items: []MenuItem{Menu{Text: "Background", Items: []MenuItem{
+			Action{Text: "Charcoal", Shortcut: Shortcut{Key: walk.Key1}},
+		}}}},
+	}, Children: []Widget{
 		Composite{AssignTo: &v.footer, Layout: HBox{}, Children: []Widget{
 			Label{AssignTo: &v.status, Text: "Image details"},
 			PushButton{Text: "Open"},
@@ -39,6 +43,10 @@ func TestNativeThemeSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer v.window.Dispose()
+	v.registerMenuShortcuts(v.window.Menu())
+	if v.window.ShortcutActions().Len() != 1 || v.window.ShortcutActions().At(0).Shortcut().Key != walk.Key1 {
+		t.Fatal("nested background shortcut not registered")
+	}
 	t.Run("Direct2D render and recovery", exerciseDirect2DRenderAndRecovery)
 	for _, dark := range []bool{true, false, true} {
 		v.dark = dark

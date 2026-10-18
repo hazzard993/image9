@@ -44,6 +44,9 @@ type viewer struct {
 	previewColour       walk.Color
 	copyFormat          colourFormat
 	copyFormatActions   [3]*walk.Action
+	sourceColourSpace   sourceColourSpace
+	colourSpaceActions  [4]*walk.Action
+	preserveView        bool
 	dragButton          walk.MouseButton
 	dark                bool
 	themeBrush          *walk.SolidColorBrush
@@ -69,12 +72,24 @@ func main() {
 			Menu{Text: "&View", Items: []MenuItem{
 				Action{Text: "Previous", Shortcut: Shortcut{Key: walk.KeyLeft}, OnTriggered: func() { v.navigate(-1) }},
 				Action{Text: "Next", Shortcut: Shortcut{Key: walk.KeyRight}, OnTriggered: func() { v.navigate(1) }},
-				Action{Text: "Fit to window", Shortcut: Shortcut{Key: walk.KeyF}, OnTriggered: v.fitImage},
-				Action{Text: "Reset zoom", Shortcut: Shortcut{Key: walk.KeyR}, OnTriggered: v.fitImage},
-				Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.KeyE}, OnTriggered: v.actualSize},
-				Action{Text: "Charcoal background", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: func() { v.selectBackground(0) }},
-				Action{Text: "Soft white background", Shortcut: Shortcut{Key: walk.Key2}, OnTriggered: func() { v.selectBackground(1) }},
-				Action{Text: "Soft black background", Shortcut: Shortcut{Key: walk.Key3}, OnTriggered: func() { v.selectBackground(2) }},
+				Menu{Text: "Zoom", Items: []MenuItem{
+					Action{Text: "Zoom in", Shortcut: Shortcut{Key: walk.KeyOEMPlus}, OnTriggered: func() { v.zoom(1.25) }},
+					Action{Text: "Zoom out", Shortcut: Shortcut{Key: walk.KeyOEMMinus}, OnTriggered: func() { v.zoom(1 / 1.25) }},
+					Action{Text: "Fit to window", Shortcut: Shortcut{Key: walk.KeyF}, OnTriggered: v.fitImage},
+					Action{Text: "Reset zoom", Shortcut: Shortcut{Key: walk.KeyR}, OnTriggered: v.fitImage},
+					Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.KeyE}, OnTriggered: v.actualSize},
+				}},
+				Menu{Text: "Background", Items: []MenuItem{
+					Action{Text: "Charcoal", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: func() { v.selectBackground(0) }},
+					Action{Text: "Soft white", Shortcut: Shortcut{Key: walk.Key2}, OnTriggered: func() { v.selectBackground(1) }},
+					Action{Text: "Soft black", Shortcut: Shortcut{Key: walk.Key3}, OnTriggered: func() { v.selectBackground(2) }},
+				}},
+				Menu{Text: "Source colour space", Items: []MenuItem{
+					Action{AssignTo: &v.colourSpaceActions[0], Text: "sRGB (default)", Checkable: true, Checked: true, OnTriggered: func() { v.setSourceColourSpace(spaceSRGB) }},
+					Action{AssignTo: &v.colourSpaceActions[1], Text: "Display P3", Checkable: true, OnTriggered: func() { v.setSourceColourSpace(spaceP3) }},
+					Action{AssignTo: &v.colourSpaceActions[2], Text: "Adobe RGB (1998)", Checkable: true, OnTriggered: func() { v.setSourceColourSpace(spaceAdobeRGB) }},
+					Action{AssignTo: &v.colourSpaceActions[3], Text: "Rec.2020 (SDR)", Checkable: true, OnTriggered: func() { v.setSourceColourSpace(spaceRec2020) }},
+				}},
 				Action{Text: "Pick colour from image", Shortcut: Shortcut{Key: walk.KeyC}, OnTriggered: v.toggleColourPicker},
 				Menu{Text: "Copy colour format", Items: []MenuItem{
 					Action{AssignTo: &v.copyFormatActions[0], Text: "Hex — #RRGGBB", Checkable: true, Checked: v.copyFormat == formatHex, OnTriggered: func() { v.setCopyFormat(formatHex) }},
@@ -151,18 +166,8 @@ func main() {
 	}
 	// Form shortcuts run before Windows dialog navigation, which otherwise uses
 	// arrow keys to move focus among toolbar buttons.
-	for i := 0; i < v.window.Menu().Actions().Len(); i++ {
-		menu := v.window.Menu().Actions().At(i).Menu()
-		if menu == nil {
-			continue
-		}
-		for j := 0; j < menu.Actions().Len(); j++ {
-			action := menu.Actions().At(j)
-			if action.Shortcut().Key != 0 {
-				v.window.ShortcutActions().Add(action)
-			}
-		}
-	}
+	v.registerMenuShortcuts(v.window.Menu())
+	v.registerZoomAliases()
 	v.window.Starting().Attach(v.focusImage)
 	v.applyTheme()
 	installLoadPump(v)
@@ -202,6 +207,36 @@ func (v *viewer) focusImage() {
 		v.colourPickerButton.SetText("Pick colour")
 	}
 	v.canvas.SetFocus()
+}
+
+func (v *viewer) registerMenuShortcuts(menu *walk.Menu) {
+	for i := 0; i < menu.Actions().Len(); i++ {
+		action := menu.Actions().At(i)
+		if action.Shortcut().Key != 0 {
+			v.window.ShortcutActions().Add(action)
+		}
+		if child := action.Menu(); child != nil {
+			v.registerMenuShortcuts(child)
+		}
+	}
+}
+
+func (v *viewer) registerZoomAliases() {
+	for _, key := range []walk.Key{walk.KeyOEMPlus, walk.KeyOEMMinus, walk.KeyAdd, walk.KeySubtract} {
+		for _, modifiers := range []walk.Modifiers{0, walk.ModShift} {
+			if modifiers == 0 && (key == walk.KeyOEMPlus || key == walk.KeyOEMMinus) {
+				continue
+			}
+			factor := 1.25
+			if key == walk.KeyOEMMinus || key == walk.KeySubtract {
+				factor = 1 / 1.25
+			}
+			action := walk.NewAction()
+			action.SetShortcut(walk.Shortcut{Modifiers: modifiers, Key: key})
+			action.Triggered().Attach(func() { v.zoom(factor) })
+			v.window.ShortcutActions().Add(action)
+		}
+	}
 }
 
 func (v *viewer) startDrag(x, y int, button walk.MouseButton) {
@@ -330,7 +365,8 @@ func (v *viewer) open(path string) {
 	}
 	v.pendingPath = abs
 	v.loading = true
-	v.loadID = v.loader.request(abs)
+	v.preserveView = false
+	v.loadID = v.loader.request(abs, v.sourceColourSpace)
 	v.status.SetText("Loading…")
 	v.window.SetTitle(filepath.Base(abs) + " — Loading…")
 }

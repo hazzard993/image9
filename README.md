@@ -24,12 +24,15 @@ The fixed-width details area at the bottom left shows image dimensions, zoom, an
 - **Escape:** return keyboard focus to the image from the toolbar.
 - **Q:** close the viewer.
 - **Mouse wheel:** zoom at the cursor position, between 1% and 3200%. The **+ / − buttons** zoom at the centre of the view.
+- **+ / = / numpad +:** zoom in at the view centre. **− / _ / numpad −:** zoom out at the view centre, independent of the cursor.
 - **Drag with the left mouse button:** pan.
 - **Middle-mouse drag:** pan while the eyedropper is active, without leaving picking mode. Also works in normal viewing mode.
 - **Hold Ctrl:** show a blue outline around the image bounds.
 - **F / R / Fit:** reset zoom to fit inside the window and centre the image, without enlarging small images.
 - **E / 100%:** display at one image pixel per screen pixel.
 - **1 / 2 / 3:** choose charcoal, soft white, or soft black background, respectively.
+- **View → Background:** contains the same three background presets.
+- **View → Source colour space:** manually interpret file pixels as sRGB (default), Display P3, Adobe RGB (1998), or SDR Rec.2020. Conversion runs in the background and preserves pan/zoom when changing the current image. The override remains active while browsing, but resets to sRGB on restart. These are input interpretations, not creative looks or full colour management: embedded ICC and monitor profiles are not read, output remains 8-bit SDR sRGB, and out-of-gamut colours are clipped. The eyedropper samples the converted sRGB pixels. HDR/PQ/HLG and ACES are not supported.
 - **C / Pick colour:** activate the eyedropper and move over the image to preview the pixel colour live, as a hex value and colour swatch. Click to copy it to the clipboard. Press Escape or C to cancel. Samples the original image pixel at the current pan/zoom, independent of interpolation. Transparent pixels include alpha as `#RRGGBBAA`; RGB is reconstructed from premultiplied pixels and may be rounded.
 - **View → Copy colour format:** choose Hex, RGB, or HSL for the clipboard. Transparent colours use alpha hex, `rgba()`, or `hsla()`. The live preview stays in hex. Your format choice is remembered.
 - **Linear: On / Off:** toggle bilinear interpolation (smooth scaling) or nearest-neighbor scaling (crisp pixels). Starts disabled and stays selected while browsing images.
