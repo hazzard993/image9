@@ -94,8 +94,17 @@ func exerciseSpatialLoading(t *testing.T) {
 	if beforeX != afterX || beforeY != afterY {
 		t.Fatal("appending moved the existing view")
 	}
-	v.clearWorkspace()
+	v.selectImage(1)
+	v.removeWorkspaceImage(0)
+	if len(v.workspace) != 2 || v.activeIndex != 0 || v.workspace[0].path != second || v.path != second {
+		t.Fatal("removing an earlier image lost the selected image")
+	}
+	v.removeWorkspaceImage(1)
+	if len(v.workspace) != 1 || v.path != second {
+		t.Fatal("removing the last image lost the preceding selection")
+	}
+	v.removeWorkspaceImage(0)
 	if len(v.workspace) != 0 || v.source != nil || v.loading {
-		t.Fatal("workspace did not clear")
+		t.Fatal("removing the final image did not clear the workspace")
 	}
 }

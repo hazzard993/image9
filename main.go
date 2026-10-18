@@ -108,6 +108,12 @@ func main() {
 			CustomWidget{AssignTo: &v.canvas, Background: SolidColorBrush{Color: walk.RGB(30, 30, 33)},
 				Style: win.WS_TABSTOP, PaintMode: PaintNoErase, InvalidatesOnResize: true, PaintPixels: v.paint,
 				OnMouseDown: func(x, y int, b walk.MouseButton) {
+					if b == walk.RightButton && walk.ModifiersDown()&walk.ModControl != 0 {
+						if index, _, _ := v.hitImage(x, y); index >= 0 {
+							v.removeWorkspaceImage(index)
+						}
+						return
+					}
 					if b == walk.MiddleButton {
 						v.canvas.SetFocus()
 						v.startDrag(x, y, b)

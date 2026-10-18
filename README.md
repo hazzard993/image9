@@ -29,6 +29,7 @@ Images share a spatial canvas, arranged at their original relative sizes in a to
 - **Drag with the left mouse button:** pan.
 - **Middle-mouse drag:** pan while the eyedropper is active, without leaving picking mode. Also works in normal viewing mode.
 - **Hold Ctrl:** show blue outlines around each image's bounds.
+- **Ctrl + right-click an image:** remove it from the workspace immediately, without a prompt. The file on disk is unchanged; remaining images close the gap.
 - **F / R / Fit:** fit the entire workspace inside the window, without enlarging small images. Fit mode automatically reframes when more images finish loading; manual pan/zoom keeps the existing view stable when images are appended.
 - **E / 100%:** display at one image pixel per screen pixel and centre the selected image.
 - **1 / 2 / 3:** choose charcoal, soft white, or soft black background, respectively.

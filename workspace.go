@@ -131,6 +131,35 @@ func (v *viewer) clearWorkspace() {
 	v.window.SetTitle("Quick Image Viewer")
 }
 
+func (v *viewer) removeWorkspaceImage(index int) {
+	if index < 0 || index >= len(v.workspace) {
+		return
+	}
+	if len(v.workspace) == 1 {
+		v.clearWorkspace()
+		return
+	}
+	v.stopDrag()
+	if v.loading {
+		if v.loadingIndex == index {
+			v.loadID = v.loader.cancel()
+			v.loading = false
+		} else if v.loadingIndex > index {
+			v.loadingIndex--
+		}
+	}
+	if v.activeIndex > index {
+		v.activeIndex--
+	}
+	copy(v.workspace[index:], v.workspace[index+1:])
+	v.workspace[len(v.workspace)-1] = workspaceImage{}
+	v.workspace = v.workspace[:len(v.workspace)-1]
+	v.activeIndex = min(v.activeIndex, len(v.workspace)-1)
+	v.arrangeWorkspace()
+	v.selectImage(v.activeIndex)
+	v.loadNextWorkspaceImage()
+}
+
 func (v *viewer) workspaceStatus(scale float64) string {
 	zoom := fmt.Sprintf("%.0f%%", scale*100)
 	if scale < 0.01 {
