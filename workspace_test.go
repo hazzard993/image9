@@ -3,6 +3,7 @@
 package main
 
 import (
+	"math"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -34,6 +35,29 @@ func TestWorkspaceOrderAndHitTesting(t *testing.T) {
 	arrangeWorkspace(items)
 	if items[0].x != 0 || items[1].x != 132 || items[2].x != 214 {
 		t.Fatal("appending moved existing images")
+	}
+}
+
+func TestWorkspaceWrapping(t *testing.T) {
+	items := []workspaceImage{{image: &decodedImage{width: 100, height: 80}}, {image: &decodedImage{width: 50, height: 200}}, {image: &decodedImage{width: 75, height: 40}}}
+	w, h := arrangeWorkspaceWithin(items, 200)
+	if w != 200 || h != 272 || items[0].x != 0 || items[1].x != 132 || items[2].x != 0 || items[2].y != 232 {
+		t.Fatalf("wrapped layout %d,%d: %+v", w, h, items)
+	}
+	if i, x, y := workspaceHit(items, 10, 240); i != 2 || x != 10 || y != 8 {
+		t.Fatalf("wrapped image hit: %d,%d,%d", i, x, y)
+	}
+	if i, _, _ := workspaceHit(items, 10, 220); i != -1 {
+		t.Fatal("row gap incorrectly hit an image")
+	}
+	// Oversized images occupy a row of their own without scaling or overlap.
+	w, h = arrangeWorkspaceWithin(items, 64)
+	if w != 100 || h != 384 || items[0].y != 0 || items[1].y != 112 || items[2].y != 344 {
+		t.Fatalf("oversized layout %d,%d: %+v", w, h, items)
+	}
+	arrangeWorkspaceWithin(items, 0)
+	if items[2].x != 214 || items[2].y != 0 {
+		t.Fatal("reset did not restore the single row")
 	}
 }
 
@@ -82,6 +106,14 @@ func exerciseSpatialLoading(t *testing.T) {
 	}
 	if v.workspace[1].x != 132 || v.workspace[0].path != first || v.workspace[1].path != second {
 		t.Fatal("opening order changed")
+	}
+	if v.activeIndex != 1 || v.path != second || v.source != v.workspace[1].image || v.fit {
+		t.Fatal("newly added image was not selected")
+	}
+	item := v.workspace[1]
+	if math.Abs(v.panX-(float64(v.width)/2-float64(item.x)-float64(item.width)/2)*v.scale) > 0.001 ||
+		math.Abs(v.panY-(float64(v.height)/2-float64(item.y)-float64(item.height)/2)*v.scale) > 0.001 {
+		t.Fatal("newly added image was not centred")
 	}
 	v.fit = false
 	v.scale = 2

@@ -181,6 +181,77 @@ func checkDirect2DPixels(t *testing.T, factory *d2dObject) {
 			t.Fatalf("tile seam at %d: %v", x, pixels[:32])
 		}
 	}
+	checkWorkspaceOverlayPixels(t, wic, factory, &format)
+}
+
+func checkWorkspaceOverlayPixels(t *testing.T, wic, factory *d2dObject, format *windows.GUID) {
+	t.Helper()
+	const width, height = 400, 80
+	var bitmap *d2dObject
+	if err := d2dError("Create overlay surface", wic.call(17, width, height, uintptr(unsafe.Pointer(format)), 2, uintptr(unsafe.Pointer(&bitmap)))); err != nil {
+		t.Fatal(err)
+	}
+	defer release(&bitmap)
+	factory.call(1)
+	r := &gpuRenderer{factory: factory, width: width, height: height, showBoundary: true, boundaryX: 380, caption: "sample.png  •  100 × 80  •  4 KiB", captionRect: d2dRect{left: 0, top: 40, right: 350, bottom: 66}}
+	defer r.close()
+	props := d2dTargetProperties{kind: 1, format: d2dPixelFormat{87, 1}, dpiX: 96, dpiY: 96}
+	if err := d2dError("Create overlay target", factory.call(13, uintptr(unsafe.Pointer(bitmap)), uintptr(unsafe.Pointer(&props)), uintptr(unsafe.Pointer(&r.target)))); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.drawScene(0, width, height, nil, 1, 0, 0, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	pixels := make([]byte, width*height*4)
+	if err := d2dError("Read overlay", bitmap.call(7, 0, width*4, uintptr(len(pixels)), uintptr(unsafe.Pointer(&pixels[0])))); err != nil {
+		t.Fatal(err)
+	}
+	if pixels[(30*width+380)*4] < 200 {
+		t.Fatal("wrap boundary line was not drawn")
+	}
+	firstTextX := width
+	for y := 40; y < 66; y++ {
+		for x := 0; x < 350; x++ {
+			offset := (y*width + x) * 4
+			if pixels[offset] > 100 && pixels[offset+1] > 100 && pixels[offset+2] > 100 {
+				firstTextX = min(firstTextX, x)
+			}
+		}
+	}
+	if firstTextX < 8 || firstTextX > 24 {
+		t.Fatalf("caption was not left aligned/rendered: first text x=%d", firstTextX)
+	}
+	r.caption = ""
+	r.showBoundary = false
+	r.captions = []imageCaption{{text: "always visible.png", bounds: d2dRect{left: 0, top: 40, right: 350, bottom: 66}}}
+	red := &decodedImage{width: width, height: height, pixels: make([]byte, width*height*4)}
+	for i := 0; i < len(red.pixels); i += 4 {
+		red.pixels[i+2] = 255
+		red.pixels[i+3] = 255
+	}
+	readCaptionPixel := func(im *decodedImage) []byte {
+		t.Helper()
+		if err := r.drawScene(0, width, height, []sceneImage{{image: im}}, 1, 0, 0, false, 0xffffff); err != nil {
+			t.Fatal(err)
+		}
+		if err := d2dError("Read caption stacking", bitmap.call(7, 0, width*4, uintptr(len(pixels)), uintptr(unsafe.Pointer(&pixels[0])))); err != nil {
+			t.Fatal(err)
+		}
+		offset := 50 * width * 4
+		return append([]byte(nil), pixels[offset:offset+4]...)
+	}
+	if p := readCaptionPixel(red); p[2] > 80 || p[1] == 0 {
+		t.Fatalf("normal caption was not above images: %v", p)
+	}
+	r.captions[0].foreground = true
+	if p := readCaptionPixel(red); p[2] > 80 || p[1] == 0 {
+		t.Fatalf("hover caption was not in front: %v", p)
+	}
+	r.captions[0].foreground = false
+	short := &decodedImage{width: width, height: 40, pixels: append([]byte(nil), red.pixels[:width*40*4]...)}
+	if p := readCaptionPixel(short); p[0] > 80 || p[1] > 80 || p[2] > 80 {
+		t.Fatalf("non-hovered caption not visible below its image: %v", p)
+	}
 }
 
 func TestTileCoverageAndGutters(t *testing.T) {

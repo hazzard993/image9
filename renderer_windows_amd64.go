@@ -16,7 +16,7 @@ import (
 type d2dObject struct{ vtable *[61]uintptr }
 
 func (o *d2dObject) call(slot int, args ...uintptr) uintptr {
-	var all [8]uintptr
+	var all [12]uintptr
 	all[0] = uintptr(unsafe.Pointer(o))
 	copy(all[1:], args)
 	r, _, _ := syscall.SyscallN(o.vtable[slot], all[:len(args)+1]...)
@@ -59,17 +59,26 @@ type gpuTile struct {
 }
 
 type gpuRenderer struct {
-	factory, target *d2dObject
-	tiles           []gpuTile
-	textures        map[*decodedImage][]gpuTile
-	image           *decodedImage
-	width, height   int
-	hardware        bool
-	highlightBounds bool
-	boundsBrush     *d2dObject
+	factory, target         *d2dObject
+	tiles                   []gpuTile
+	textures                map[*decodedImage][]gpuTile
+	image                   *decodedImage
+	width, height           int
+	hardware                bool
+	highlightBounds         bool
+	boundsBrush             *d2dObject
+	showBoundary            bool
+	boundaryX               float32
+	caption                 string
+	captionRect             d2dRect
+	captions                []imageCaption
+	textFactory, textFormat *d2dObject
+	captionBrush, textBrush *d2dObject
 }
 
 func (r *gpuRenderer) disposeTarget() {
+	release(&r.captionBrush)
+	release(&r.textBrush)
 	release(&r.boundsBrush)
 	for im, tiles := range r.textures {
 		for i := range tiles {
@@ -81,7 +90,12 @@ func (r *gpuRenderer) disposeTarget() {
 	r.image = nil
 	release(&r.target)
 }
-func (r *gpuRenderer) close() { r.disposeTarget(); release(&r.factory) }
+func (r *gpuRenderer) close() {
+	r.disposeTarget()
+	release(&r.textFormat)
+	release(&r.textFactory)
+	release(&r.factory)
+}
 
 func (r *gpuRenderer) ensure(hwnd win.HWND, width, height int) error {
 	if r.factory == nil {
@@ -229,9 +243,14 @@ func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneI
 		}
 		prepared = append(prepared, preparedImage{im: im, tiles: r.tiles, x: left, y: top})
 	}
-	if r.highlightBounds && len(prepared) > 0 && r.boundsBrush == nil {
+	if (r.showBoundary || r.highlightBounds && len(prepared) > 0) && r.boundsBrush == nil {
 		blue := d2dColour{r: 0.1, g: 0.5, b: 1, a: 1}
 		if err := d2dError("Create bounds brush", r.target.call(8, uintptr(unsafe.Pointer(&blue)), 0, uintptr(unsafe.Pointer(&r.boundsBrush)))); err != nil {
+			return err
+		}
+	}
+	if r.caption != "" || len(r.captions) > 0 {
+		if err := r.prepareCaption(); err != nil {
 			return err
 		}
 	}
@@ -256,6 +275,7 @@ func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneI
 			r.target.call(16, uintptr(unsafe.Pointer(&bounds)), uintptr(unsafe.Pointer(r.boundsBrush)), uintptr(math.Float32bits(2)), 0)
 		}
 	}
+	r.drawWorkspaceOverlay(width, height)
 	hr := r.target.call(49, 0, 0)
 	if uint32(hr) == 0x8899000c {
 		r.disposeTarget()

@@ -17,11 +17,15 @@ The build script embeds the Windows application manifest and creates a standalon
 
 ## Controls
 
-Images share a spatial canvas, arranged at their original relative sizes in a top-aligned horizontal strip with gaps. Opening or dropping files appends them on the right in selection order. The fixed-width details area shows the selected image's dimensions and file size, plus the workspace zoom. Click an image to select it.
+Images share a spatial canvas at their original relative sizes. They start in a horizontal strip; a draggable right-hand boundary can wrap them into rows. Opening or dropping files appends them in selection order. The fixed-width details area shows the selected image's dimensions and file size, plus the workspace zoom. Click an image to select it.
 
 - **Open / Ctrl+O:** append one or more images. You can also drop files onto the window or pass multiple paths on the command line. Images appear as they finish background loading; further drops queue behind existing loads.
+- Opening files through another launch sends them to the existing viewer and appends them to its workspace.
+- Newly added images are selected and centred as they finish loading. Zoom is reduced if needed to show the whole image.
 - **Left / Right:** select and centre the previous/next workspace image at the current zoom. Navigation wraps.
 - **File → Clear workspace / Ctrl+N:** remove all images and cancel pending loads.
+- **Hold Ctrl for the blue line at the right:** click and drag it left/right to set the workspace's wrapping width, snapping every 8 image pixels. Images flow left to right into new rows, with consistent gaps. Images wider than the limit occupy their own row without being resized. **View → Layout → Single row** resets wrapping. Clearing the workspace also resets the boundary.
+- **Hold Ctrl for image labels:** filename, pixel dimensions, and file size appear below each image, left-aligned. All labels appear above the images; hovering an image's bounds while Ctrl is held brings its label above the other labels. Labels are hidden when Ctrl is released.
 - **Escape:** return keyboard focus to the image from the toolbar.
 - **Q:** close the viewer.
 - **Mouse wheel:** zoom the workspace at the cursor position, up to 3200%. Very small zoom levels allow fitting large image strips. The **+ / − buttons** zoom at the centre of the view.
@@ -29,6 +33,7 @@ Images share a spatial canvas, arranged at their original relative sizes in a to
 - **Drag with the left mouse button:** pan.
 - **Middle-mouse drag:** pan while the eyedropper is active, without leaving picking mode. Also works in normal viewing mode.
 - **Hold Ctrl:** show blue outlines around each image's bounds.
+- **Ctrl + left-click an image:** copy its full file path to the clipboard.
 - **Ctrl + right-click an image:** remove it from the workspace immediately, without a prompt. The file on disk is unchanged; remaining images close the gap.
 - **F / R / Fit:** fit the entire workspace inside the window, without enlarging small images. Fit mode automatically reframes when more images finish loading; manual pan/zoom keeps the existing view stable when images are appended.
 - **E / 100%:** display at one image pixel per screen pixel and centre the selected image.

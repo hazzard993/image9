@@ -19,7 +19,11 @@ type workspaceImage struct {
 }
 
 func arrangeWorkspace(items []workspaceImage) (int, int) {
-	x, height := 0, 0
+	return arrangeWorkspaceWithin(items, 0)
+}
+
+func arrangeWorkspaceWithin(items []workspaceImage, limit int) (int, int) {
+	x, y, rowHeight, width := 0, 0, 0, 0
 	for i := range items {
 		item := &items[i]
 		if item.image != nil {
@@ -28,14 +32,23 @@ func arrangeWorkspace(items []workspaceImage) (int, int) {
 		if item.width == 0 {
 			item.width, item.height = 256, 256
 		}
-		item.x, item.y = x, 0
+		if limit > 0 && x > 0 && x+item.width > limit {
+			y += rowHeight + workspaceGap
+			x = 0
+			rowHeight = 0
+		}
+		item.x, item.y = x, y
 		x += item.width + workspaceGap
-		height = max(height, item.height)
+		width = max(width, x-workspaceGap)
+		rowHeight = max(rowHeight, item.height)
 	}
-	if len(items) > 0 {
-		x -= workspaceGap
+	if len(items) == 0 {
+		return 0, 0
 	}
-	return x, height
+	if limit > 0 {
+		width = max(width, limit)
+	}
+	return width, y + rowHeight
 }
 
 func workspaceHit(items []workspaceImage, x, y float64) (int, int, int) {
@@ -52,7 +65,7 @@ func workspaceHit(items []workspaceImage, x, y float64) (int, int, int) {
 }
 
 func (v *viewer) arrangeWorkspace() {
-	width, height := arrangeWorkspace(v.workspace)
+	width, height := arrangeWorkspaceWithin(v.workspace, v.wrapWidth)
 	// Keep the existing world origin fixed when appending or finishing a load
 	// during manual pan/zoom. Fit mode intentionally reframes the entire strip.
 	if !v.fit {
@@ -92,6 +105,22 @@ func (v *viewer) centreActive(scale float64) {
 	v.panY = (float64(v.height)/2 - float64(item.y) - float64(item.height)/2) * scale
 }
 
+func (v *viewer) focusAddedImage(index int) {
+	item := v.workspace[index]
+	b := v.canvas.ClientBoundsPixels()
+	scale := v.displayScale()
+	if v.fit {
+		scale = 1
+	}
+	// Preserve manual zoom where possible, but keep the new image fully visible.
+	scale = math.Max(0.000001, math.Min(scale, math.Min(float64(max(1, b.Width-32))/float64(item.width), float64(max(1, b.Height-64))/float64(item.height))))
+	v.selectImage(index)
+	v.fit = false
+	v.scale = scale
+	v.centreActive(scale)
+	v.focusImage()
+}
+
 func (v *viewer) loadNextWorkspaceImage() {
 	if v.loading {
 		return
@@ -122,6 +151,7 @@ func (v *viewer) clearWorkspace() {
 	v.loadID = v.loader.cancel()
 	v.loading = false
 	v.workspace = nil
+	v.wrapWidth = 0
 	v.source = nil
 	v.path = ""
 	v.activeIndex = 0

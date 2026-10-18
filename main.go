@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/lxn/walk"
@@ -50,6 +51,11 @@ type viewer struct {
 	workspace           []workspaceImage
 	activeIndex         int
 	loadingIndex        int
+	wrapWidth           int
+	resizingColumns     bool
+	pointerInside       bool
+	pointerX, pointerY  int
+	hoverIndex          int
 	path                string
 	width, height       int
 	scale, panX, panY   float64
@@ -58,9 +64,19 @@ type viewer struct {
 }
 
 func main() {
+	runtime.LockOSThread()
+	instance, forwarded, err := acquireViewerInstance(os.Args[1:])
+	if err != nil {
+		walk.MsgBox(nil, "Unable to open viewer", err.Error(), walk.MsgBoxIconError)
+		return
+	}
+	if forwarded {
+		return
+	}
+	defer instance.close()
 	v := &viewer{fit: true, scale: 1, dark: loadDarkMode(), copyFormat: loadCopyFormat()}
 	setNativeAppTheme(v.dark)
-	err := (MainWindow{
+	err = (MainWindow{
 		AssignTo: &v.window, Title: "Quick Image Viewer", Size: Size{Width: 1000, Height: 740}, MinSize: Size{Width: 800, Height: 320},
 		Layout: VBox{MarginsZero: true, SpacingZero: true},
 		MenuItems: []MenuItem{
@@ -79,6 +95,7 @@ func main() {
 					Action{Text: "Reset zoom", Shortcut: Shortcut{Key: walk.KeyR}, OnTriggered: v.fitImage},
 					Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.KeyE}, OnTriggered: v.actualSize},
 				}},
+				Menu{Text: "Layout", Items: []MenuItem{Action{Text: "Single row (reset wrap limit)", OnTriggered: func() { v.wrapWidth = 0; v.arrangeWorkspace(); v.fitImage() }}}},
 				Menu{Text: "Background", Items: []MenuItem{
 					Action{Text: "Charcoal", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: func() { v.selectBackground(0) }},
 					Action{Text: "Soft white", Shortcut: Shortcut{Key: walk.Key2}, OnTriggered: func() { v.selectBackground(1) }},
@@ -108,6 +125,14 @@ func main() {
 			CustomWidget{AssignTo: &v.canvas, Background: SolidColorBrush{Color: walk.RGB(30, 30, 33)},
 				Style: win.WS_TABSTOP, PaintMode: PaintNoErase, InvalidatesOnResize: true, PaintPixels: v.paint,
 				OnMouseDown: func(x, y int, b walk.MouseButton) {
+					if b == walk.LeftButton && v.nearWrapLine(x) && len(v.workspace) > 0 {
+						v.scale = v.displayScale()
+						v.fit = false
+						v.startDrag(x, y, b)
+						v.resizingColumns = true
+						v.setWrapAt(x)
+						return
+					}
 					if b == walk.RightButton && walk.ModifiersDown()&walk.ModControl != 0 {
 						if index, _, _ := v.hitImage(x, y); index >= 0 {
 							v.removeWorkspaceImage(index)
@@ -120,6 +145,14 @@ func main() {
 						return
 					}
 					if b == walk.LeftButton {
+						if walk.ModifiersDown()&walk.ModControl != 0 {
+							if index, _, _ := v.hitImage(x, y); index >= 0 {
+								if err := walk.Clipboard().SetText(v.workspace[index].path); err != nil {
+									v.showError(err)
+								}
+							}
+							return
+						}
 						if v.colourPicking {
 							v.pickColourAt(x, y)
 							return
@@ -134,11 +167,17 @@ func main() {
 				OnMouseUp: func(x, y int, b walk.MouseButton) {
 					if b == v.dragButton {
 						v.stopDrag()
+						v.canvas.Invalidate()
 					}
 				},
 				OnMouseMove: func(x, y int, b walk.MouseButton) {
+					v.trackWorkspacePointer(x, y)
 					if v.dragging && b&v.dragButton == 0 {
 						v.stopDrag()
+					}
+					if v.resizingColumns {
+						v.setWrapAt(x)
+						return
 					}
 					if v.dragging {
 						if v.fit && (x != v.lastX || y != v.lastY) {
@@ -184,6 +223,12 @@ func main() {
 	v.window.Starting().Attach(v.focusImage)
 	v.applyTheme()
 	installLoadPump(v)
+	if err := instance.attach(v.window.Handle(), v.openImages); err != nil {
+		v.window.Dispose()
+		walk.MsgBox(nil, "Unable to open viewer", err.Error(), walk.MsgBoxIconError)
+		return
+	}
+	v.installPointerTracking()
 	v.installBoundsKeys()
 	v.canvas.MouseWheel().Attach(func(x, y int, b walk.MouseButton) {
 		point := win.POINT{X: int32(x), Y: int32(y)}
@@ -257,6 +302,7 @@ func (v *viewer) stopDrag() {
 	}
 	v.dragging = false
 	v.dragButton = 0
+	v.resizingColumns = false
 }
 
 func (v *viewer) toggleColourPicker() {
@@ -427,7 +473,7 @@ func (v *viewer) displayScale() float64 {
 		return v.scale
 	}
 	b := v.canvas.ClientBoundsPixels()
-	return math.Max(0.000001, math.Min(1, math.Min(float64(b.Width)/float64(v.width), float64(b.Height)/float64(v.height))))
+	return math.Max(0.000001, math.Min(1, math.Min(float64(max(1, b.Width-32))/float64(v.width), float64(max(1, b.Height-64))/float64(v.height))))
 }
 func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	b := v.canvas.ClientBoundsPixels()
@@ -442,6 +488,9 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	y := math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY)
 	background := v.canvas.Background().(*walk.SolidColorBrush).Color()
 	v.renderer.highlightBounds = v.highlightBounds
+	v.renderer.showBoundary = v.highlightBounds
+	v.renderer.boundaryX = float32(v.wrapLineX())
+	v.prepareHoverCaption(s, x, y, b.Width, b.Height)
 	scene := make([]sceneImage, 0, len(v.workspace))
 	for _, item := range v.workspace {
 		scene = append(scene, sceneImage{image: item.image, x: item.x, y: item.y})
@@ -488,6 +537,12 @@ func formatFileSize(bytes int64) string {
 func (v *viewer) setBoundsHighlight(held bool) {
 	if v.highlightBounds != held {
 		v.highlightBounds = held
+		if !held && v.resizingColumns {
+			v.stopDrag()
+		}
+		if v.pointerInside {
+			v.trackWorkspacePointer(v.pointerX, v.pointerY)
+		}
 		v.canvas.Invalidate()
 	}
 }

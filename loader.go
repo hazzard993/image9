@@ -215,6 +215,7 @@ func (v *viewer) finishLoad() {
 				continue
 			}
 			index := v.loadingIndex
+			newImage := v.workspace[index].image == nil
 			v.loading = false
 			v.workspace[index].reload = false
 			if result.err != nil {
@@ -223,6 +224,9 @@ func (v *viewer) finishLoad() {
 				v.workspace[index].image = result.image
 			}
 			v.arrangeWorkspace()
+			if newImage && result.err == nil && result.image != nil {
+				v.focusAddedImage(index)
+			}
 			if index == v.activeIndex {
 				v.selectImage(index)
 			}
