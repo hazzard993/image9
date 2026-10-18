@@ -67,19 +67,32 @@ type gpuRenderer struct {
 	hardware                bool
 	highlightBounds         bool
 	boundsBrush             *d2dObject
+	selectedBoundsBrush     *d2dObject
 	showBoundary            bool
+	showBoundaryHint        bool
+	placingWrap             bool
+	boundaryUnset           bool
+	boundaryGrayBrush       *d2dObject
 	boundaryX               float32
 	caption                 string
 	captionRect             d2dRect
 	captions                []imageCaption
+	feedbackText            string
+	modeText                string
+	feedbackAlpha           float32
+	shortcutLines           []string
+	shortcutX, shortcutY    float32
 	textFactory, textFormat *d2dObject
 	captionBrush, textBrush *d2dObject
+	captionWidths           map[string]float32
 }
 
 func (r *gpuRenderer) disposeTarget() {
 	release(&r.captionBrush)
 	release(&r.textBrush)
 	release(&r.boundsBrush)
+	release(&r.selectedBoundsBrush)
+	release(&r.boundaryGrayBrush)
 	for im, tiles := range r.textures {
 		for i := range tiles {
 			release(&tiles[i].bitmap)
@@ -186,8 +199,9 @@ func (r *gpuRenderer) upload(im *decodedImage) error {
 }
 
 type sceneImage struct {
-	image *decodedImage
-	x, y  int
+	image    *decodedImage
+	x, y     int
+	selected bool
 }
 
 func (r *gpuRenderer) draw(hwnd win.HWND, width, height int, im *decodedImage, scale, x, y float64, linear bool, background win.COLORREF) error {
@@ -224,9 +238,10 @@ func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneI
 		r.tiles = nil
 	}
 	type preparedImage struct {
-		im    *decodedImage
-		tiles []gpuTile
-		x, y  float64
+		im       *decodedImage
+		tiles    []gpuTile
+		x, y     float64
+		selected bool
 	}
 	prepared := make([]preparedImage, 0, len(scene))
 	for _, item := range scene {
@@ -241,7 +256,7 @@ func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneI
 		if err := r.upload(im); err != nil {
 			return err
 		}
-		prepared = append(prepared, preparedImage{im: im, tiles: r.tiles, x: left, y: top})
+		prepared = append(prepared, preparedImage{im: im, tiles: r.tiles, x: left, y: top, selected: item.selected})
 	}
 	if (r.showBoundary || r.highlightBounds && len(prepared) > 0) && r.boundsBrush == nil {
 		blue := d2dColour{r: 0.1, g: 0.5, b: 1, a: 1}
@@ -249,7 +264,19 @@ func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneI
 			return err
 		}
 	}
-	if r.caption != "" || len(r.captions) > 0 {
+	if r.highlightBounds && len(prepared) > 0 && r.selectedBoundsBrush == nil {
+		white := d2dColour{r: 1, g: 1, b: 1, a: 1}
+		if err := d2dError("Create selection brush", r.target.call(8, uintptr(unsafe.Pointer(&white)), 0, uintptr(unsafe.Pointer(&r.selectedBoundsBrush)))); err != nil {
+			return err
+		}
+	}
+	if r.showBoundary && r.boundaryUnset && r.boundaryGrayBrush == nil {
+		gray := d2dColour{r: 0.5, g: 0.5, b: 0.5, a: 1}
+		if err := d2dError("Create inactive boundary brush", r.target.call(8, uintptr(unsafe.Pointer(&gray)), 0, uintptr(unsafe.Pointer(&r.boundaryGrayBrush)))); err != nil {
+			return err
+		}
+	}
+	if r.caption != "" || len(r.captions) > 0 || r.feedbackText != "" || r.modeText != "" || len(r.shortcutLines) > 0 || r.showBoundaryHint {
 		if err := r.prepareCaption(); err != nil {
 			return err
 		}
@@ -270,9 +297,21 @@ func (r *gpuRenderer) drawScene(hwnd win.HWND, width, height int, scene []sceneI
 			src := d2dRect{float32(tile.core.Min.X - tile.pixels.Min.X), float32(tile.core.Min.Y - tile.pixels.Min.Y), float32(tile.core.Max.X - tile.pixels.Min.X), float32(tile.core.Max.Y - tile.pixels.Min.Y)}
 			r.target.call(26, uintptr(unsafe.Pointer(tile.bitmap)), uintptr(unsafe.Pointer(&dst)), uintptr(math.Float32bits(1)), mode, uintptr(unsafe.Pointer(&src)))
 		}
-		if r.highlightBounds {
-			bounds := d2dRect{float32(item.x), float32(item.y), float32(item.x + float64(item.im.width)*scale), float32(item.y + float64(item.im.height)*scale)}
-			r.target.call(16, uintptr(unsafe.Pointer(&bounds)), uintptr(unsafe.Pointer(r.boundsBrush)), uintptr(math.Float32bits(2)), 0)
+	}
+	if r.highlightBounds {
+		// Draw every image first, then blue bounds, then the white selection.
+		for _, selected := range []bool{false, true} {
+			for _, item := range prepared {
+				if item.selected != selected {
+					continue
+				}
+				brush := r.boundsBrush
+				if selected {
+					brush = r.selectedBoundsBrush
+				}
+				bounds := d2dRect{float32(item.x), float32(item.y), float32(item.x + float64(item.im.width)*scale), float32(item.y + float64(item.im.height)*scale)}
+				r.target.call(16, uintptr(unsafe.Pointer(&bounds)), uintptr(unsafe.Pointer(brush)), uintptr(math.Float32bits(2)), 0)
+			}
 		}
 	}
 	r.drawWorkspaceOverlay(width, height)

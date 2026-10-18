@@ -140,6 +140,7 @@ func (v *viewer) applyTheme() {
 	for i := 0; i < v.footer.Children().Len(); i++ {
 		child := v.footer.Children().At(i)
 		if _, ok := child.(*walk.PushButton); ok {
+			installStaticButton(child.Handle(), v.dark)
 			callThemeOrdinal(133, uintptr(child.Handle()), enabled)
 			win.SetWindowTheme(child.Handle(), name, nil)
 			child.Invalidate()

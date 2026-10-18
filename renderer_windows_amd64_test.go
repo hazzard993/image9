@@ -3,6 +3,7 @@ package main
 import (
 	"image"
 	"runtime"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -221,6 +222,14 @@ func checkWorkspaceOverlayPixels(t *testing.T, wic, factory *d2dObject, format *
 	if firstTextX < 8 || firstTextX > 24 {
 		t.Fatalf("caption was not left aligned/rendered: first text x=%d", firstTextX)
 	}
+	longCaption := strings.Repeat("long filename ", 20) + ".png"
+	measured, err := r.measureCaption(longCaption)
+	if err != nil || measured <= 560 {
+		t.Fatalf("long caption remained width limited: %v, %v", measured, err)
+	}
+	if cached, err := r.measureCaption(longCaption); err != nil || cached != measured {
+		t.Fatal("caption measurement cache changed its width")
+	}
 	r.caption = ""
 	r.showBoundary = false
 	r.captions = []imageCaption{{text: "always visible.png", bounds: d2dRect{left: 0, top: 40, right: 350, bottom: 66}}}
@@ -251,6 +260,43 @@ func checkWorkspaceOverlayPixels(t *testing.T, wic, factory *d2dObject, format *
 	short := &decodedImage{width: width, height: 40, pixels: append([]byte(nil), red.pixels[:width*40*4]...)}
 	if p := readCaptionPixel(short); p[0] > 80 || p[1] > 80 || p[2] > 80 {
 		t.Fatalf("non-hovered caption not visible below its image: %v", p)
+	}
+	r.captions = nil
+	r.feedbackText = "Image path copied"
+	r.feedbackAlpha = 1
+	readCaptionPixel(red)
+	offset := ((height-25)*width + 10) * 4
+	if pixels[offset+2] != 255 || pixels[offset+1] != 0 {
+		t.Fatal("action message unexpectedly drew a background")
+	}
+	textPixels := 0
+	for y := height - 28; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if pixels[(y*width+x)*4+1] > 0 {
+				textPixels++
+			}
+		}
+	}
+	if textPixels == 0 {
+		t.Fatal("action message text was not drawn")
+	}
+	r.feedbackAlpha = 0
+	readCaptionPixel(red)
+	if pixels[offset+2] != 255 {
+		t.Fatal("expired action message remained visible")
+	}
+	r.feedbackText = ""
+	r.highlightBounds = true
+	square := &decodedImage{width: 32, height: 32, pixels: make([]byte, 32*32*4)}
+	if err := r.drawScene(0, width, height, []sceneImage{{image: square, x: 20, selected: true}, {image: square, x: 52}}, 1, 0, 0, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := d2dError("Read selection stacking", bitmap.call(7, 0, width*4, uintptr(len(pixels)), uintptr(unsafe.Pointer(&pixels[0])))); err != nil {
+		t.Fatal(err)
+	}
+	edge := (16*width + 52) * 4
+	if pixels[edge] < 230 || pixels[edge+1] < 230 || pixels[edge+2] < 230 {
+		t.Fatal("shared edge was not drawn with the white selection above blue bounds")
 	}
 }
 

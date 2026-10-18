@@ -16,6 +16,11 @@ import (
 
 func (v *viewer) wrapLineX() float64 {
 	b := v.canvas.ClientBoundsPixels()
+	if v.placingWrap && v.pointerInside {
+		s := v.displayScale()
+		left := math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX)
+		return left + float64(v.wrapLimitAt(v.pointerX))*s
+	}
 	if v.wrapWidth == 0 {
 		return float64(b.Width - 16)
 	}
@@ -26,15 +31,58 @@ func (v *viewer) wrapLineX() float64 {
 func (v *viewer) nearWrapLine(x int) bool {
 	return v.highlightBounds && math.Abs(float64(x)-v.wrapLineX()) <= 7
 }
-func (v *viewer) setWrapAt(x int) {
+func (v *viewer) wrapLimitAt(x int) int {
 	b := v.canvas.ClientBoundsPixels()
 	s := v.displayScale()
 	left := math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX)
-	limit := max(64, int(math.Round((float64(x)-left)/s/8))*8)
+	return max(64, int(math.Round((float64(x)-left)/s/8))*8)
+}
+
+func (v *viewer) setWrapAt(x int) {
+	limit := v.wrapLimitAt(x)
 	if limit != v.wrapWidth {
 		v.wrapWidth = limit
 		v.arrangeWorkspace()
+		v.notifyAction(fmt.Sprintf("Wrap width: %d px", limit))
 	}
+}
+
+func (v *viewer) resetWrap() {
+	v.endWrapPlacement()
+	v.stopDrag()
+	v.canvas.SetCursor(walk.CursorArrow())
+	v.wrapWidth = 0
+	v.arrangeWorkspace()
+	v.notifyAction("Wrap limit reset - single row")
+}
+
+func (v *viewer) toggleWrapMode() {
+	if v.placingWrap {
+		v.resetWrap()
+		return
+	}
+	if len(v.workspace) == 0 {
+		return
+	}
+	v.focusImage()
+	v.placingWrap = true
+	v.wrapInput = ""
+	if err := v.captureGapKeyboard(); err != nil {
+		v.placingWrap = false
+		v.showError(err)
+		return
+	}
+	v.canvas.SetCursor(walk.CursorSizeWE())
+	v.showWrapInput()
+}
+
+func (v *viewer) placeWrapAt(x int) {
+	v.scale = v.displayScale()
+	v.fit = false
+	v.endWrapPlacement()
+	v.setWrapAt(x)
+	v.canvas.SetCursor(walk.CursorArrow())
+	v.canvas.Invalidate()
 }
 
 func (v *viewer) trackWorkspacePointer(x, y int) {
@@ -42,11 +90,11 @@ func (v *viewer) trackWorkspacePointer(x, y int) {
 	v.pointerInside = true
 	v.pointerX, v.pointerY = x, y
 	index, _, _ := v.hitImage(x, y)
-	if index != v.hoverIndex || !wasInside {
+	if index != v.hoverIndex || !wasInside || v.placingWrap {
 		v.hoverIndex = index
 		v.canvas.Invalidate()
 	}
-	if v.nearWrapLine(x) || v.resizingColumns {
+	if v.placingWrap || v.nearWrapLine(x) || v.resizingColumns {
 		v.canvas.SetCursor(walk.CursorSizeWE())
 	} else if v.colourPicking {
 		v.canvas.SetCursor(walk.CursorCross())
@@ -63,7 +111,29 @@ func (v *viewer) trackWorkspacePointer(x, y int) {
 func (v *viewer) prepareHoverCaption(scale, x, y float64, width, height int) {
 	v.renderer.caption = ""
 	v.renderer.captions = v.renderer.captions[:0]
+	v.renderer.shortcutLines = nil
 	if !v.highlightBounds {
+		return
+	}
+	hint := "H / T - Show filename labels"
+	if v.showFilenameLabels {
+		hint = "H / T - Hide filename labels"
+	}
+	gap := workspaceGap
+	if v.customGap {
+		gap = v.imageGap
+	}
+	v.renderer.shortcutLines = []string{hint, "C - Copy focused image path", fmt.Sprintf("G - Gap: %d px (G again: 0 / default)", gap), "L - Image list / reorder", "O - Open containing folder"}
+	if v.ctrlViewPinned {
+		v.renderer.shortcutLines[0] = "H / J / K / L - Left / down / up / right"
+		v.renderer.shortcutLines[3] = "L - Image list / reorder (after Esc)"
+		v.renderer.shortcutLines = append(v.renderer.shortcutLines, "Esc - Exit Inspect Mode")
+		v.renderer.shortcutLines = append(v.renderer.shortcutLines, "T - Toggle filename labels")
+	}
+	// UI hints use a fixed canvas anchor, independent of image bounds/camera.
+	v.renderer.shortcutX = 0
+	v.renderer.shortcutY = 0
+	if !v.showFilenameLabels {
 		return
 	}
 	hovered := -1
@@ -76,8 +146,8 @@ func (v *viewer) prepareHoverCaption(scale, x, y float64, width, height int) {
 		}
 		left := x + float64(item.x)*scale
 		top := y + float64(item.y+item.height)*scale
-		right := left + math.Min(560, math.Max(240, float64(item.width)*scale))
-		if right <= 0 || left >= float64(width) || top+26 <= 0 || top >= float64(height) {
+		right := float64(width)
+		if left >= float64(width) || top+26 <= 0 || top >= float64(height) {
 			continue
 		}
 		text := fmt.Sprintf("%s  •  %d × %d  •  %s", filepath.Base(item.path), item.width, item.height, formatFileSize(item.image.fileSize))
@@ -86,7 +156,17 @@ func (v *viewer) prepareHoverCaption(scale, x, y float64, width, height int) {
 }
 
 var pointerWindows sync.Map
+
 var pointerCallback uintptr
+
+func (v *viewer) toggleCtrlText() {
+	v.showFilenameLabels = !v.showFilenameLabels
+	if !v.showFilenameLabels {
+		v.notifyAction("Filename labels hidden - H to show")
+	} else {
+		v.notifyAction("Filename labels shown")
+	}
+}
 
 func (v *viewer) installPointerTracking() {
 	if pointerCallback == 0 {
@@ -98,6 +178,46 @@ func (v *viewer) installPointerTracking() {
 func workspacePointerProc(hwnd win.HWND, message uint32, wParam uintptr, lParam unsafe.Pointer, id, data uintptr) uintptr {
 	if value, ok := pointerWindows.Load(hwnd); ok {
 		v := value.(*viewer)
+		if message == win.WM_GETDLGCODE {
+			if v.gapInput != nil || v.placingWrap || walk.Key(wParam) == walk.KeyReturn {
+				return win.DLGC_WANTALLKEYS | win.DLGC_WANTCHARS
+			}
+			// Keep queued characters out of IsDialogMessage even after Enter
+			// exits gap mode, so they reach our silent WM_CHAR handler.
+			result, _, _ := defaultSubclass.Call(uintptr(hwnd), uintptr(message), wParam, uintptr(lParam))
+			return result | win.DLGC_WANTCHARS
+		}
+		// TranslateMessage queues WM_CHAR before WM_KEYDOWN is dispatched.
+		// Enter may finish gap entry before its character arrives. The image
+		// canvas has no text input, so consume characters even after mode exit.
+		if message == win.WM_CHAR {
+			return 0
+		}
+		if v.placingWrap {
+			switch message {
+			case win.WM_KEYDOWN, win.WM_SYSKEYDOWN:
+				if uintptr(lParam)&(1<<30) == 0 || walk.Key(wParam) != walk.KeyW {
+					v.handleWrapKey(walk.Key(wParam))
+				}
+				return 0
+			case win.WM_KILLFOCUS:
+				v.endWrapPlacement()
+				v.notifyAction("Wrap placement cancelled")
+			}
+		}
+		if v.gapInput != nil {
+			switch message {
+			case win.WM_KEYDOWN, win.WM_SYSKEYDOWN:
+				if uintptr(lParam)&(1<<30) == 0 || walk.Key(wParam) != walk.KeyG {
+					v.handleGapKey(walk.Key(wParam))
+				}
+				return 0
+			case win.WM_CHAR, win.WM_SYSCHAR:
+				return 0
+			case win.WM_KILLFOCUS:
+				v.endGapInput(false)
+			}
+		}
 		if message == win.WM_MOUSELEAVE {
 			v.pointerInside = false
 			v.hoverIndex = -1

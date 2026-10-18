@@ -11,17 +11,18 @@ import (
 )
 
 var (
-	commonControls     = windows.NewLazySystemDLL("comctl32.dll")
-	setSubclass        = commonControls.NewProc("SetWindowSubclass")
-	removeSubclass     = commonControls.NewProc("RemoveWindowSubclass")
-	defaultSubclass    = commonControls.NewProc("DefSubclassProc")
-	userDLL            = windows.NewLazySystemDLL("user32.dll")
-	fillRectProc       = userDLL.NewProc("FillRect")
-	menuBarInfoProc    = userDLL.NewProc("GetMenuBarInfo")
-	menuStringProc     = userDLL.NewProc("GetMenuStringW")
-	getMenuProc        = userDLL.NewProc("GetMenu")
-	getWindowDCProc    = userDLL.NewProc("GetWindowDC")
-	themePaintCallback uintptr
+	commonControls       = windows.NewLazySystemDLL("comctl32.dll")
+	setSubclass          = commonControls.NewProc("SetWindowSubclass")
+	removeSubclass       = commonControls.NewProc("RemoveWindowSubclass")
+	defaultSubclass      = commonControls.NewProc("DefSubclassProc")
+	userDLL              = windows.NewLazySystemDLL("user32.dll")
+	fillRectProc         = userDLL.NewProc("FillRect")
+	menuBarInfoProc      = userDLL.NewProc("GetMenuBarInfo")
+	menuStringProc       = userDLL.NewProc("GetMenuStringW")
+	getMenuProc          = userDLL.NewProc("GetMenu")
+	getWindowDCProc      = userDLL.NewProc("GetWindowDC")
+	themePaintCallback   uintptr
+	setDCBrushColourProc = windows.NewLazySystemDLL("gdi32.dll").NewProc("SetDCBrushColor")
 )
 
 // UAH menu painting preserves native menu navigation and accelerators. Structure
@@ -66,6 +67,13 @@ func themePaintProc(hwnd win.HWND, message uint32, wParam uintptr, lParam unsafe
 	}
 	if dark != 0 && lParam != nil {
 		switch message {
+		case win.WM_CTLCOLORLISTBOX:
+			dc := win.HDC(wParam)
+			colour := win.COLORREF(themeSurface(true))
+			win.SetTextColor(dc, 0x00e6e6e6)
+			win.SetBkColor(dc, colour)
+			setDCBrushColourProc.Call(uintptr(dc), uintptr(colour))
+			return uintptr(win.GetStockObject(win.DC_BRUSH))
 		case win.WM_NOTIFY:
 			draw := (*win.NMCUSTOMDRAW)(lParam)
 			if draw.Hdr.Code == win.NM_CUSTOMDRAW {

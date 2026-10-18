@@ -11,11 +11,31 @@ import (
 const workspaceGap = 32
 
 type workspaceImage struct {
+	orderID             uint64
 	path                string
 	image               *decodedImage
 	x, y, width, height int
 	failed              bool
 	reload              bool
+	skipFocus           bool
+	dropBatch           *imageDropBatch
+}
+
+type imageDropBatch struct{ remaining, loaded int }
+
+func (v *viewer) finishDroppedImage(index int, loaded bool) {
+	batch := v.workspace[index].dropBatch
+	if batch == nil {
+		return
+	}
+	v.workspace[index].dropBatch = nil
+	batch.remaining--
+	if loaded {
+		batch.loaded++
+	}
+	if batch.remaining == 0 {
+		v.notifyAction(fmt.Sprintf("Loaded %d files into workspace", batch.loaded))
+	}
 }
 
 func arrangeWorkspace(items []workspaceImage) (int, int) {
@@ -23,6 +43,10 @@ func arrangeWorkspace(items []workspaceImage) (int, int) {
 }
 
 func arrangeWorkspaceWithin(items []workspaceImage, limit int) (int, int) {
+	return arrangeWorkspaceWithGap(items, limit, workspaceGap)
+}
+
+func arrangeWorkspaceWithGap(items []workspaceImage, limit, gap int) (int, int) {
 	x, y, rowHeight, width := 0, 0, 0, 0
 	for i := range items {
 		item := &items[i]
@@ -33,13 +57,13 @@ func arrangeWorkspaceWithin(items []workspaceImage, limit int) (int, int) {
 			item.width, item.height = 256, 256
 		}
 		if limit > 0 && x > 0 && x+item.width > limit {
-			y += rowHeight + workspaceGap
+			y += rowHeight + gap
 			x = 0
 			rowHeight = 0
 		}
 		item.x, item.y = x, y
-		x += item.width + workspaceGap
-		width = max(width, x-workspaceGap)
+		x += item.width + gap
+		width = max(width, x-gap)
 		rowHeight = max(rowHeight, item.height)
 	}
 	if len(items) == 0 {
@@ -65,7 +89,11 @@ func workspaceHit(items []workspaceImage, x, y float64) (int, int, int) {
 }
 
 func (v *viewer) arrangeWorkspace() {
-	width, height := arrangeWorkspaceWithin(v.workspace, v.wrapWidth)
+	gap := workspaceGap
+	if v.customGap {
+		gap = v.imageGap
+	}
+	width, height := arrangeWorkspaceWithGap(v.workspace, v.wrapWidth, gap)
 	// Keep the existing world origin fixed when appending or finishing a load
 	// during manual pan/zoom. Fit mode intentionally reframes the entire strip.
 	if !v.fit {
@@ -73,6 +101,7 @@ func (v *viewer) arrangeWorkspace() {
 		v.panY += float64(height-v.height) * v.scale / 2
 	}
 	v.width, v.height = width, height
+	v.refreshImageList()
 	v.canvas.Invalidate()
 }
 
@@ -92,7 +121,7 @@ func (v *viewer) selectImage(index int) {
 	item := v.workspace[index]
 	v.source = item.image
 	v.path = item.path
-	v.window.SetTitle(filepath.Base(item.path) + " — Quick Image Viewer")
+	v.window.SetTitle("Quick Image Viewer - " + filepath.Base(item.path))
 	v.canvas.Invalidate()
 }
 
@@ -103,6 +132,54 @@ func (v *viewer) centreActive(scale float64) {
 	item := v.workspace[v.activeIndex]
 	v.panX = (float64(v.width)/2 - float64(item.x) - float64(item.width)/2) * scale
 	v.panY = (float64(v.height)/2 - float64(item.y) - float64(item.height)/2) * scale
+}
+
+func verticalWorkspaceNeighbor(items []workspaceImage, index, direction int) int {
+	if index < 0 || index >= len(items) {
+		for i, item := range items {
+			if item.image != nil {
+				return i
+			}
+		}
+		return -1
+	}
+	current := items[index]
+	row := -1
+	for _, item := range items {
+		if item.image == nil || direction < 0 && item.y >= current.y || direction > 0 && item.y <= current.y {
+			continue
+		}
+		if row == -1 || direction < 0 && item.y > row || direction > 0 && item.y < row {
+			row = item.y
+		}
+	}
+	if row == -1 {
+		return index
+	}
+	centre := float64(current.x) + float64(current.width)/2
+	best, distance := index, math.Inf(1)
+	for i, item := range items {
+		if item.image == nil || item.y != row {
+			continue
+		}
+		d := math.Abs(float64(item.x) + float64(item.width)/2 - centre)
+		if d < distance {
+			best, distance = i, d
+		}
+	}
+	return best
+}
+
+func (v *viewer) navigateVertical(direction int) {
+	index := verticalWorkspaceNeighbor(v.workspace, v.activeIndex, direction)
+	if index < 0 || index == v.activeIndex {
+		return
+	}
+	scale := v.displayScale()
+	v.selectImage(index)
+	v.fit, v.scale = false, scale
+	v.centreActive(scale)
+	v.notifyAction("Focused on " + filepath.Base(v.path))
 }
 
 func (v *viewer) focusAddedImage(index int) {
@@ -119,6 +196,30 @@ func (v *viewer) focusAddedImage(index int) {
 	v.scale = scale
 	v.centreActive(scale)
 	v.focusImage()
+	v.notifyAction("Focused on " + filepath.Base(item.path))
+}
+
+func (v *viewer) frameSelectedOrAll() {
+	if v.activeIndex < 0 || v.activeIndex >= len(v.workspace) {
+		return
+	}
+	item := v.workspace[v.activeIndex]
+	if item.image == nil {
+		return
+	}
+	b := v.canvas.ClientBoundsPixels()
+	scale := math.Max(0.000001, math.Min(1, math.Min(float64(max(1, b.Width-32))/float64(item.width), float64(max(1, b.Height-64))/float64(item.height))))
+	panX := (float64(v.width)/2 - float64(item.x) - float64(item.width)/2) * scale
+	panY := (float64(v.height)/2 - float64(item.y) - float64(item.height)/2) * scale
+	// Compare the actual camera so panning or zooming naturally resets the toggle.
+	if math.Abs(v.displayScale()-scale) < scale*0.000001 && math.Abs(v.panX-panX) < 0.5 && math.Abs(v.panY-panY) < 0.5 {
+		v.fitImage()
+		return
+	}
+	v.fit = false
+	v.scale = scale
+	v.panX, v.panY = panX, panY
+	v.notifyAction("Framed " + filepath.Base(item.path))
 }
 
 func (v *viewer) loadNextWorkspaceImage() {
@@ -159,6 +260,7 @@ func (v *viewer) clearWorkspace() {
 	v.fitImage()
 	v.focusImage()
 	v.window.SetTitle("Quick Image Viewer")
+	v.notifyAction("Workspace cleared")
 }
 
 func (v *viewer) removeWorkspaceImage(index int) {
@@ -166,10 +268,14 @@ func (v *viewer) removeWorkspaceImage(index int) {
 		return
 	}
 	if len(v.workspace) == 1 {
+		name := filepath.Base(v.workspace[index].path)
 		v.clearWorkspace()
+		v.notifyAction("Removed " + name)
 		return
 	}
 	v.stopDrag()
+	removedName := filepath.Base(v.workspace[index].path)
+	v.finishDroppedImage(index, false)
 	if v.loading {
 		if v.loadingIndex == index {
 			v.loadID = v.loader.cancel()
@@ -188,6 +294,7 @@ func (v *viewer) removeWorkspaceImage(index int) {
 	v.arrangeWorkspace()
 	v.selectImage(v.activeIndex)
 	v.loadNextWorkspaceImage()
+	v.notifyAction("Removed " + removedName)
 }
 
 func (v *viewer) workspaceStatus(scale float64) string {
@@ -211,6 +318,25 @@ func (v *viewer) workspaceStatus(scale float64) string {
 }
 
 func (v *viewer) addWorkspaceImages(paths []string) {
+	v.addWorkspaceImagesWithFocus(paths, true)
+}
+
+func (v *viewer) dropImages(paths []string) {
+	v.addWorkspaceImagesWithFocus(paths, false)
+}
+
+func (v *viewer) unsetFocusedImage() {
+	for i := range v.workspace {
+		v.workspace[i].skipFocus = true
+	}
+	v.activeIndex = -1
+	v.source = nil
+	v.path = ""
+	v.window.SetTitle("Quick Image Viewer")
+	v.notifyAction("Image focus cleared")
+}
+
+func (v *viewer) addWorkspaceImagesWithFocus(paths []string, focus bool) {
 	files, err := normalizeImagePaths(paths)
 	if err != nil {
 		v.showError(err)
@@ -220,13 +346,25 @@ func (v *viewer) addWorkspaceImages(paths []string) {
 		return
 	}
 	wasEmpty := len(v.workspace) == 0
+	var batch *imageDropBatch
+	if !focus {
+		batch = &imageDropBatch{remaining: len(files)}
+	}
+	if !focus && !wasEmpty {
+		v.scale = v.displayScale()
+		v.fit = false
+	}
 	for _, path := range files {
-		v.workspace = append(v.workspace, workspaceImage{path: path})
+		v.nextOrderID++
+		v.workspace = append(v.workspace, workspaceImage{orderID: v.nextOrderID, path: path, skipFocus: !focus, dropBatch: batch})
 	}
 	v.arrangeWorkspace()
-	if wasEmpty {
+	if wasEmpty && focus {
 		v.selectImage(0)
 		v.fitImage()
+	}
+	if wasEmpty && !focus {
+		v.activeIndex = -1
 	}
 	v.loadNextWorkspaceImage()
 }

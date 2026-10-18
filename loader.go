@@ -183,8 +183,14 @@ func loadPumpProc(hwnd win.HWND, message uint32, wParam uintptr, lParam unsafe.P
 	if value, ok := loadersByWindow.Load(hwnd); ok {
 		v := value.(*viewer)
 		switch message {
+		case win.WM_TIMER:
+			if wParam == feedbackTimerID {
+				v.tickFeedback()
+				return 0
+			}
 		case win.WM_ACTIVATE:
 			if wParam&0xffff == 0 {
+				v.showKeyboardCursor()
 				v.stopDrag()
 			}
 			v.setBoundsHighlight(wParam&0xffff != 0 && walk.ModifiersDown()&walk.ModControl != 0)
@@ -192,6 +198,8 @@ func loadPumpProc(hwnd win.HWND, message uint32, wParam uintptr, lParam unsafe.P
 			v.finishLoad()
 			return 0
 		case win.WM_NCDESTROY:
+			v.closeKeyboardCursor()
+			v.releaseGapKeyboard()
 			if v.loader != nil {
 				v.loader.close()
 			}
@@ -224,16 +232,14 @@ func (v *viewer) finishLoad() {
 				v.workspace[index].image = result.image
 			}
 			v.arrangeWorkspace()
-			if newImage && result.err == nil && result.image != nil {
+			if newImage && !v.workspace[index].skipFocus && result.err == nil && result.image != nil {
 				v.focusAddedImage(index)
 			}
 			if index == v.activeIndex {
 				v.selectImage(index)
 			}
-			if v.source == nil && result.image != nil {
-				v.selectImage(index)
-			}
 			v.loadNextWorkspaceImage()
+			v.finishDroppedImage(index, result.err == nil && result.image != nil)
 			if result.err != nil {
 				v.showError(result.err)
 			}
