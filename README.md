@@ -14,7 +14,7 @@ Suitable for:
 
 Features:
 
-- Quick image viewing (fast to opem, q to exit)
+- Quick image viewing (fast to open, q to exit)
 - Zooming and panning through images
 - Keyboard friendly navigation
 
