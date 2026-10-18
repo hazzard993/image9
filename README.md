@@ -21,11 +21,12 @@ The build script embeds the Windows application manifest and creates a standalon
 - **Left / Right:** previous or next supported image in the same folder, sorted alphabetically (case insensitive). Navigation wraps.
 - **Escape:** return keyboard focus to the image from the toolbar.
 - **Q:** close the viewer.
-- **Mouse wheel / + / − buttons:** zoom, between 1% and 3200%.
+- **Mouse wheel:** zoom at the cursor position, between 1% and 3200%. The **+ / − buttons** zoom at the centre of the view.
 - **Drag with the left mouse button:** pan.
 - **Hold Ctrl:** show a blue outline around the image bounds.
 - **F / R / Fit:** reset zoom to fit inside the window and centre the image, without enlarging small images.
-- **1 / 100%:** display at one image pixel per screen pixel.
+- **E / 100%:** display at one image pixel per screen pixel.
+- **1 / 2 / 3:** choose charcoal, soft white, or soft black background, respectively.
 - **Linear: On / Off:** toggle bilinear interpolation (smooth scaling) or nearest-neighbor scaling (crisp pixels). Starts disabled and stays selected while browsing images.
 - **Colour swatches:** the three small colour buttons in the bottom toolbar choose charcoal (`#1E1E21`), soft white (`#EEEEEE`), or soft black (`#121212`). Hover for a description. Also applies behind transparent images and stays selected while browsing.
 - **View → Dark mode:** switch the interface between dark and light. Starts with the Windows app theme preference, then remembers your choice in `%APPDATA%\QuickImageViewer\theme.txt`. Image background swatches are independent of the interface theme. The File/View menu bar also follows the theme. System dialogs may retain Windows styling; native dark controls require Windows 10 1903 or newer.

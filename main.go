@@ -64,7 +64,10 @@ func main() {
 				Action{Text: "Next", Shortcut: Shortcut{Key: walk.KeyRight}, OnTriggered: func() { v.navigate(1) }},
 				Action{Text: "Fit to window", Shortcut: Shortcut{Key: walk.KeyF}, OnTriggered: v.fitImage},
 				Action{Text: "Reset zoom", Shortcut: Shortcut{Key: walk.KeyR}, OnTriggered: v.fitImage},
-				Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: v.actualSize},
+				Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.KeyE}, OnTriggered: v.actualSize},
+				Action{Text: "Charcoal background", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: func() { v.selectBackground(0) }},
+				Action{Text: "Soft white background", Shortcut: Shortcut{Key: walk.Key2}, OnTriggered: func() { v.selectBackground(1) }},
+				Action{Text: "Soft black background", Shortcut: Shortcut{Key: walk.Key3}, OnTriggered: func() { v.selectBackground(2) }},
 				Action{Text: "Focus image", Shortcut: Shortcut{Key: walk.KeyEscape}, OnTriggered: v.focusImage},
 				Action{Text: "Dark mode", Checkable: true, Checked: v.dark, OnTriggered: func() {
 					v.dark = !v.dark
@@ -133,10 +136,14 @@ func main() {
 	installLoadPump(v)
 	v.installBoundsKeys()
 	v.canvas.MouseWheel().Attach(func(x, y int, b walk.MouseButton) {
+		point := win.POINT{X: int32(x), Y: int32(y)}
+		if !win.ScreenToClient(v.canvas.Handle(), &point) {
+			return
+		}
 		if walk.MouseWheelEventDelta(b) > 0 {
-			v.zoom(1.25)
+			v.zoomAt(1.25, float64(point.X), float64(point.Y))
 		} else {
-			v.zoom(1 / 1.25)
+			v.zoomAt(1/1.25, float64(point.X), float64(point.Y))
 		}
 	})
 	v.window.DropFiles().Attach(func(paths []string) {
@@ -226,15 +233,27 @@ func (v *viewer) actualSize() {
 	v.canvas.Invalidate()
 }
 func (v *viewer) zoom(factor float64) {
+	b := v.canvas.ClientBoundsPixels()
+	v.zoomAt(factor, float64(b.Width)/2, float64(b.Height)/2)
+}
+
+func (v *viewer) zoomAt(factor, x, y float64) {
 	if v.source == nil {
 		return
 	}
 	before := v.displayScale()
 	v.scale = math.Max(0.01, math.Min(32, before*factor))
 	v.fit = false
-	v.panX *= v.scale / before
-	v.panY *= v.scale / before
+	b := v.canvas.ClientBoundsPixels()
+	ratio := v.scale / before
+	v.panX = zoomPan(v.panX, x, float64(b.Width)/2, ratio)
+	v.panY = zoomPan(v.panY, y, float64(b.Height)/2, ratio)
 	v.canvas.Invalidate()
+}
+
+// Keep the same image point at the anchor as its distance from the centre scales.
+func zoomPan(pan, anchor, centre, ratio float64) float64 {
+	return pan*ratio + (anchor-centre)*(1-ratio)
 }
 func (v *viewer) displayScale() float64 {
 	if !v.fit || v.source == nil {
@@ -335,27 +354,28 @@ func (v *viewer) setBackground(color walk.Color) {
 
 var backgroundColours = [...]walk.Color{walk.RGB(30, 30, 33), walk.RGB(238, 238, 238), walk.RGB(18, 18, 18)}
 
+func (v *viewer) selectBackground(index int) {
+	v.backgroundIndex = index
+	v.setBackground(backgroundColours[index])
+	v.palette.Invalidate()
+}
+
 func (v *viewer) backgroundPalette() ImageView {
-	selectColour := func(index int) {
-		v.backgroundIndex = index
-		v.setBackground(backgroundColours[index])
-		v.palette.Invalidate()
-	}
 	return ImageView{
 		AssignTo: &v.palette, Alignment: AlignHNearVCenter, MinSize: Size{Width: 66, Height: 20}, MaxSize: Size{Width: 66, Height: 20},
 		ToolTipText: "Background: charcoal, soft white, soft black. Arrow keys change colour.",
 		OnMouseDown: func(x, y int, button walk.MouseButton) {
 			if button == walk.LeftButton && x >= 0 && x < 66 && y >= 0 && y < 20 && x%22 < 20 {
 				v.palette.SetFocus()
-				selectColour(x / 22)
+				v.selectBackground(x / 22)
 			}
 		},
 		OnKeyDown: func(key walk.Key) {
 			switch key {
 			case walk.KeyLeft:
-				selectColour((v.backgroundIndex + 2) % 3)
+				v.selectBackground((v.backgroundIndex + 2) % 3)
 			case walk.KeyRight:
-				selectColour((v.backgroundIndex + 1) % 3)
+				v.selectBackground((v.backgroundIndex + 1) % 3)
 			}
 		},
 		Image: walk.NewPaintFuncImage(walk.Size{Width: 66, Height: 20}, func(c *walk.Canvas, _ walk.Rectangle) error {

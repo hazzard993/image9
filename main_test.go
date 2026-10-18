@@ -3,11 +3,27 @@
 package main
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestZoomKeepsCursorImagePoint(t *testing.T) {
+	for _, test := range []struct{ pan, anchor, centre, scale, ratio float64 }{
+		{0, 100, 500, 0.5, 1.25}, {135, 720, 500, 2, 0.8}, {-80, 300, 720, 1, 4}, {50, 500, 500, 1, 1},
+	} {
+		const imageSize = 2560
+		before := (test.anchor - (test.centre - imageSize*test.scale/2 + test.pan)) / test.scale
+		pan := zoomPan(test.pan, test.anchor, test.centre, test.ratio)
+		scale := test.scale * test.ratio
+		after := (test.anchor - (test.centre - imageSize*scale/2 + pan)) / scale
+		if math.Abs(before-after) > 1e-9 {
+			t.Fatalf("cursor image point moved: %v -> %v", before, after)
+		}
+	}
+}
 
 func TestFolderImages(t *testing.T) {
 	dir := t.TempDir()
