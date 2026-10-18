@@ -19,6 +19,8 @@ The build script embeds the Windows application manifest and creates a standalon
 
 - **Open / Ctrl+O:** choose an image. You can also drop a file onto the window or pass its path on the command line.
 - **Left / Right:** previous or next supported image in the same folder, sorted alphabetically (case insensitive). Navigation wraps.
+- **Escape:** return keyboard focus to the image from the toolbar.
+- **Q:** close the viewer.
 - **Mouse wheel / + / − buttons:** zoom, between 1% and 3200%.
 - **Drag with the left mouse button:** pan.
 - **F / Fit:** fit inside the window, without enlarging small images.

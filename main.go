@@ -16,6 +16,7 @@ import (
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
+	"github.com/lxn/win"
 	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/math/f64"
@@ -60,13 +61,14 @@ func main() {
 		MenuItems: []MenuItem{
 			Menu{Text: "&File", Items: []MenuItem{
 				Action{Text: "&Open…", Shortcut: Shortcut{Modifiers: walk.ModControl, Key: walk.KeyO}, OnTriggered: v.openDialog},
-				Action{Text: "E&xit", OnTriggered: func() { v.window.Close() }},
+				Action{Text: "E&xit", Shortcut: Shortcut{Key: walk.KeyQ}, OnTriggered: func() { v.window.Close() }},
 			}},
 			Menu{Text: "&View", Items: []MenuItem{
 				Action{Text: "Previous", Shortcut: Shortcut{Key: walk.KeyLeft}, OnTriggered: func() { v.navigate(-1) }},
 				Action{Text: "Next", Shortcut: Shortcut{Key: walk.KeyRight}, OnTriggered: func() { v.navigate(1) }},
 				Action{Text: "Fit to window", Shortcut: Shortcut{Key: walk.KeyF}, OnTriggered: v.fitImage},
 				Action{Text: "Actual size (100%)", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: v.actualSize},
+				Action{Text: "Focus image", Shortcut: Shortcut{Key: walk.KeyEscape}, OnTriggered: v.focusImage},
 				Action{Text: "Dark mode", Checkable: true, Checked: v.dark, OnTriggered: func() {
 					v.dark = !v.dark
 					v.applyTheme()
@@ -76,9 +78,10 @@ func main() {
 		},
 		Children: []Widget{
 			CustomWidget{AssignTo: &v.canvas, Background: SolidColorBrush{Color: walk.RGB(30, 30, 33)},
-				PaintMode: PaintBuffered, InvalidatesOnResize: true, PaintPixels: v.paint,
+				Style: win.WS_TABSTOP, PaintMode: PaintBuffered, InvalidatesOnResize: true, PaintPixels: v.paint,
 				OnMouseDown: func(x, y int, b walk.MouseButton) {
 					if b == walk.LeftButton {
+						v.focusImage()
 						v.dragging = true
 						v.lastX = x
 						v.lastY = y
@@ -113,6 +116,21 @@ func main() {
 		walk.MsgBox(nil, "Unable to start", err.Error(), walk.MsgBoxIconError)
 		return
 	}
+	// Form shortcuts run before Windows dialog navigation, which otherwise uses
+	// arrow keys to move focus among toolbar buttons.
+	for i := 0; i < v.window.Menu().Actions().Len(); i++ {
+		menu := v.window.Menu().Actions().At(i).Menu()
+		if menu == nil {
+			continue
+		}
+		for j := 0; j < menu.Actions().Len(); j++ {
+			action := menu.Actions().At(j)
+			if action.Shortcut().Key != 0 {
+				v.window.ShortcutActions().Add(action)
+			}
+		}
+	}
+	v.window.Starting().Attach(v.focusImage)
 	v.applyTheme()
 	v.canvas.MouseWheel().Attach(func(x, y int, b walk.MouseButton) {
 		if walk.MouseWheelEventDelta(b) > 0 {
@@ -140,6 +158,11 @@ func main() {
 		v.open(os.Args[1])
 	}
 	v.window.Run()
+}
+
+func (v *viewer) focusImage() {
+	v.dragging = false
+	v.canvas.SetFocus()
 }
 
 func (v *viewer) openDialog() {
