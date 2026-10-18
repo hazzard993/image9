@@ -137,9 +137,11 @@ func main() {
 				}},
 				Menu{Text: "Layout", Items: []MenuItem{Action{Text: "Set / reset wrap limit", Shortcut: Shortcut{Key: walk.KeyW}, OnTriggered: v.toggleWrapMode}}},
 				Menu{Text: "Background", Items: []MenuItem{
+					Action{Text: "Reset to default", Shortcut: Shortcut{Key: walk.Key0}, OnTriggered: func() { v.selectBackground(0) }},
 					Action{Text: "Charcoal", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: func() { v.selectBackground(0) }},
 					Action{Text: "Soft white", Shortcut: Shortcut{Key: walk.Key2}, OnTriggered: func() { v.selectBackground(1) }},
 					Action{Text: "Soft black", Shortcut: Shortcut{Key: walk.Key3}, OnTriggered: func() { v.selectBackground(2) }},
+					Action{Text: "Green", Shortcut: Shortcut{Key: walk.Key4}, OnTriggered: func() { v.selectBackground(3) }},
 				}},
 				Menu{Text: "Source colour space", Items: []MenuItem{
 					Action{AssignTo: &v.colourSpaceActions[0], Text: "sRGB (default)", Checkable: true, Checked: true, OnTriggered: func() { v.setSourceColourSpace(spaceSRGB) }},
@@ -385,7 +387,11 @@ func (v *viewer) registerZoomAliases() {
 }
 
 func (v *viewer) registerBackgroundAliases() {
-	for index, key := range []walk.Key{walk.KeyNumpad1, walk.KeyNumpad2, walk.KeyNumpad3} {
+	reset := walk.NewAction()
+	reset.SetShortcut(walk.Shortcut{Key: walk.KeyNumpad0})
+	reset.Triggered().Attach(func() { v.selectBackground(0) })
+	v.window.ShortcutActions().Add(reset)
+	for index, key := range []walk.Key{walk.KeyNumpad1, walk.KeyNumpad2, walk.KeyNumpad3, walk.KeyNumpad4} {
 		action := walk.NewAction()
 		action.SetShortcut(walk.Shortcut{Key: key})
 		action.Triggered().Attach(func() { v.selectBackground(index) })
@@ -814,21 +820,22 @@ func (v *viewer) setBackground(color walk.Color) {
 	v.canvas.Invalidate()
 }
 
-var backgroundColours = [...]walk.Color{walk.RGB(30, 30, 33), walk.RGB(238, 238, 238), walk.RGB(18, 18, 18)}
+var backgroundColours = [...]walk.Color{walk.RGB(30, 30, 33), walk.RGB(238, 238, 238), walk.RGB(18, 18, 18), walk.RGB(46, 125, 50)}
 
 func (v *viewer) selectBackground(index int) {
 	v.backgroundIndex = index
 	v.setBackground(backgroundColours[index])
 	v.palette.Invalidate()
-	v.notifyAction("Background: " + []string{"charcoal", "soft white", "soft black"}[index])
+	v.notifyAction("Background: " + []string{"charcoal", "soft white", "soft black", "green"}[index])
 }
 
 func (v *viewer) backgroundPalette() ImageView {
+	width := len(backgroundColours) * 22
 	return ImageView{
-		AssignTo: &v.palette, Alignment: AlignHNearVCenter, MinSize: Size{Width: 66, Height: 20}, MaxSize: Size{Width: 66, Height: 20},
-		ToolTipText: "Background: charcoal, soft white, soft black. Arrow keys change colour.",
+		AssignTo: &v.palette, Alignment: AlignHNearVCenter, MinSize: Size{Width: width, Height: 20}, MaxSize: Size{Width: width, Height: 20},
+		ToolTipText: "Background: charcoal, soft white, soft black, green (1-4, also numpad). Arrow keys change colour.",
 		OnMouseDown: func(x, y int, button walk.MouseButton) {
-			if button == walk.LeftButton && x >= 0 && x < 66 && y >= 0 && y < 20 && x%22 < 20 {
+			if button == walk.LeftButton && x >= 0 && x < width && y >= 0 && y < 20 && x%22 < 20 {
 				v.palette.SetFocus()
 				v.selectBackground(x / 22)
 			}
@@ -836,12 +843,12 @@ func (v *viewer) backgroundPalette() ImageView {
 		OnKeyDown: func(key walk.Key) {
 			switch key {
 			case walk.KeyLeft:
-				v.selectBackground((v.backgroundIndex + 2) % 3)
+				v.selectBackground((v.backgroundIndex + len(backgroundColours) - 1) % len(backgroundColours))
 			case walk.KeyRight:
-				v.selectBackground((v.backgroundIndex + 1) % 3)
+				v.selectBackground((v.backgroundIndex + 1) % len(backgroundColours))
 			}
 		},
-		Image: walk.NewPaintFuncImage(walk.Size{Width: 66, Height: 20}, func(c *walk.Canvas, _ walk.Rectangle) error {
+		Image: walk.NewPaintFuncImage(walk.Size{Width: width, Height: 20}, func(c *walk.Canvas, _ walk.Rectangle) error {
 			fill := func(colour walk.Color, rect walk.Rectangle) error {
 				brush, err := walk.NewSolidColorBrush(colour)
 				if err != nil {

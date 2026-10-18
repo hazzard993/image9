@@ -77,13 +77,14 @@ Images share a spatial canvas at their original relative sizes. They start in a 
 - **F / Fit:** fit the entire workspace inside the window, without enlarging small images.
 - **R:** frame the selected image. If it is already framed, fit all images instead. Panning or zooming away lets R frame the selected image again.
 - **E / 100%:** display at one image pixel per screen pixel and centre the selected image.
-- **1 / 2 / 3 (including numpad with Num Lock on):** choose charcoal, soft white, or soft black background, respectively.
-- **View → Background:** contains the same three background presets.
+- **1 / 2 / 3 / 4 (including numpad with Num Lock on):** choose charcoal, soft white, soft black, or green (`#2E7D32`) background, respectively.
+- **0 (also numpad):** reset the background to the default charcoal.
+- **View → Background:** contains the same four background presets.
 - **View → Source colour space:** manually interpret file pixels as sRGB (default), Display P3, Adobe RGB (1998), or SDR Rec.2020. Conversion reloads the workspace images in the background while preserving the view. The override applies to all images, but resets to sRGB on restart. These are input interpretations, not creative looks or full colour management: embedded ICC and monitor profiles are not read, output remains 8-bit SDR sRGB, and out-of-gamut colours are clipped. The eyedropper samples the converted sRGB pixels. HDR/PQ/HLG and ACES are not supported.
 - **Right-click / Pick colour:** activate the eyedropper and move over the image to preview the pixel colour live, as a hex value and colour swatch. Click to copy it to the clipboard. Press Escape or right-click to cancel. Samples the original image pixel at the current pan/zoom, independent of interpolation. Transparent pixels include alpha as `#RRGGBBAA`; RGB is reconstructed from premultiplied pixels and may be rounded.
 - **View → Copy colour format:** choose Hex, RGB, or HSL for the clipboard. Transparent colours use alpha hex, `rgba()`, or `hsla()`. The live preview stays in hex. Your format choice is remembered.
 - **Linear: On / Off:** toggle bilinear interpolation (smooth scaling) or nearest-neighbor scaling (crisp pixels). Starts disabled and stays selected while browsing images.
-- **Colour swatches:** the three small colour buttons in the bottom toolbar choose charcoal (`#1E1E21`), soft white (`#EEEEEE`), or soft black (`#121212`). Hover for a description. Also applies behind transparent images and stays selected while browsing.
+- **Colour swatches:** the four small colour buttons in the bottom toolbar choose charcoal (`#1E1E21`), soft white (`#EEEEEE`), soft black (`#121212`), or green (`#2E7D32`). Hover for a description. Also applies behind transparent images and stays selected while browsing.
 - **View → Dark mode:** switch the interface between dark and light. Starts with the Windows app theme preference, then remembers your choice in `%APPDATA%\image9\theme.txt`. Image background swatches are independent of the interface theme. The File/View menu bar also follows the theme. System dialogs may retain Windows styling; native dark controls require Windows 10 1903 or newer.
 
 Supports JPEG, PNG, GIF, BMP, TIFF, and WebP. Animated and multipage images display their first frame/page. EXIF orientation and color profile management are not implemented. No image files are modified.
