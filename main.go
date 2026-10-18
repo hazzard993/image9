@@ -38,6 +38,13 @@ type viewer struct {
 	interpolationButton *walk.PushButton
 	palette             *walk.ImageView
 	backgroundIndex     int
+	colourPicking       bool
+	colourPickerButton  *walk.PushButton
+	colourPreview       *walk.ImageView
+	previewColour       walk.Color
+	copyFormat          colourFormat
+	copyFormatActions   [3]*walk.Action
+	dragButton          walk.MouseButton
 	dark                bool
 	themeBrush          *walk.SolidColorBrush
 	files               []string
@@ -49,7 +56,7 @@ type viewer struct {
 }
 
 func main() {
-	v := &viewer{fit: true, scale: 1, dark: loadDarkMode()}
+	v := &viewer{fit: true, scale: 1, dark: loadDarkMode(), copyFormat: loadCopyFormat()}
 	setNativeAppTheme(v.dark)
 	err := (MainWindow{
 		AssignTo: &v.window, Title: "Quick Image Viewer", Size: Size{Width: 1000, Height: 740}, MinSize: Size{Width: 800, Height: 320},
@@ -68,6 +75,12 @@ func main() {
 				Action{Text: "Charcoal background", Shortcut: Shortcut{Key: walk.Key1}, OnTriggered: func() { v.selectBackground(0) }},
 				Action{Text: "Soft white background", Shortcut: Shortcut{Key: walk.Key2}, OnTriggered: func() { v.selectBackground(1) }},
 				Action{Text: "Soft black background", Shortcut: Shortcut{Key: walk.Key3}, OnTriggered: func() { v.selectBackground(2) }},
+				Action{Text: "Pick colour from image", Shortcut: Shortcut{Key: walk.KeyC}, OnTriggered: v.toggleColourPicker},
+				Menu{Text: "Copy colour format", Items: []MenuItem{
+					Action{AssignTo: &v.copyFormatActions[0], Text: "Hex — #RRGGBB", Checkable: true, Checked: v.copyFormat == formatHex, OnTriggered: func() { v.setCopyFormat(formatHex) }},
+					Action{AssignTo: &v.copyFormatActions[1], Text: "RGB — rgb(r, g, b)", Checkable: true, Checked: v.copyFormat == formatRGB, OnTriggered: func() { v.setCopyFormat(formatRGB) }},
+					Action{AssignTo: &v.copyFormatActions[2], Text: "HSL — hsl(h, s%, l%)", Checkable: true, Checked: v.copyFormat == formatHSL, OnTriggered: func() { v.setCopyFormat(formatHSL) }},
+				}},
 				Action{Text: "Focus image", Shortcut: Shortcut{Key: walk.KeyEscape}, OnTriggered: v.focusImage},
 				Action{Text: "Dark mode", Checkable: true, Checked: v.dark, OnTriggered: func() {
 					v.dark = !v.dark
@@ -80,15 +93,29 @@ func main() {
 			CustomWidget{AssignTo: &v.canvas, Background: SolidColorBrush{Color: walk.RGB(30, 30, 33)},
 				Style: win.WS_TABSTOP, PaintMode: PaintNoErase, InvalidatesOnResize: true, PaintPixels: v.paint,
 				OnMouseDown: func(x, y int, b walk.MouseButton) {
+					if b == walk.MiddleButton {
+						v.canvas.SetFocus()
+						v.startDrag(x, y, b)
+						return
+					}
 					if b == walk.LeftButton {
+						if v.colourPicking {
+							v.pickColourAt(x, y)
+							return
+						}
 						v.focusImage()
-						v.dragging = true
-						v.lastX = x
-						v.lastY = y
+						v.startDrag(x, y, b)
 					}
 				},
-				OnMouseUp: func(x, y int, b walk.MouseButton) { v.dragging = false },
+				OnMouseUp: func(x, y int, b walk.MouseButton) {
+					if b == v.dragButton {
+						v.stopDrag()
+					}
+				},
 				OnMouseMove: func(x, y int, b walk.MouseButton) {
+					if v.dragging && b&v.dragButton == 0 {
+						v.stopDrag()
+					}
 					if v.dragging {
 						v.panX += float64(x - v.lastX)
 						v.panY += float64(y - v.lastY)
@@ -96,10 +123,13 @@ func main() {
 						v.lastY = y
 						v.canvas.Invalidate()
 					}
+					if v.colourPicking {
+						v.previewColourAt(x, y)
+					}
 				},
 			},
 			Composite{AssignTo: &v.footer, Layout: HBox{Margins: Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}, Spacing: 4}, Children: []Widget{
-				Label{AssignTo: &v.status, MinSize: Size{Width: 180}, MaxSize: Size{Width: 180}, EllipsisMode: EllipsisEnd, Text: "Open an image • Ctrl+O"},
+				Label{AssignTo: &v.status, MinSize: Size{Width: 240}, MaxSize: Size{Width: 240}, EllipsisMode: EllipsisEnd, Text: "Open an image • Ctrl+O"},
 				HSpacer{},
 				PushButton{Text: "Open…", OnClicked: v.openDialog},
 				PushButton{Text: "‹ Previous", OnClicked: func() { v.navigate(-1) }},
@@ -110,6 +140,8 @@ func main() {
 				PushButton{Text: "100%", OnClicked: v.actualSize},
 				PushButton{AssignTo: &v.interpolationButton, Text: "Linear: Off", ToolTipText: "Toggle bilinear smoothing / nearest-neighbor pixels", OnClicked: v.toggleInterpolation},
 				v.backgroundPalette(),
+				PushButton{AssignTo: &v.colourPickerButton, MinSize: Size{Width: 100}, MaxSize: Size{Width: 100}, Text: "Pick colour", ToolTipText: "Pick a pixel from the image and copy its hex colour (C)", OnClicked: v.toggleColourPicker},
+				v.colourPreviewWidget(),
 			}},
 		},
 	}).Create()
@@ -163,8 +195,122 @@ func main() {
 }
 
 func (v *viewer) focusImage() {
-	v.dragging = false
+	v.stopDrag()
+	if v.colourPicking {
+		v.colourPicking = false
+		v.canvas.SetCursor(walk.CursorArrow())
+		v.colourPickerButton.SetText("Pick colour")
+	}
 	v.canvas.SetFocus()
+}
+
+func (v *viewer) startDrag(x, y int, button walk.MouseButton) {
+	v.dragging = true
+	v.dragButton = button
+	v.lastX, v.lastY = x, y
+	win.SetCapture(v.canvas.Handle())
+}
+
+func (v *viewer) stopDrag() {
+	if v.dragging {
+		win.ReleaseCapture()
+	}
+	v.dragging = false
+	v.dragButton = 0
+}
+
+func (v *viewer) toggleColourPicker() {
+	if v.colourPicking {
+		v.focusImage()
+		return
+	}
+	if v.source == nil {
+		return
+	}
+	v.focusImage()
+	v.colourPicking = true
+	v.colourPickerButton.SetText("Click image")
+	v.canvas.SetCursor(walk.CursorCross())
+}
+
+func (v *viewer) colourAt(x, y int) (string, bool) {
+	if v.source == nil {
+		return "", false
+	}
+	b := v.canvas.ClientBoundsPixels()
+	s := v.displayScale()
+	left := math.Round((float64(b.Width)-float64(v.width)*s)/2 + v.panX)
+	top := math.Round((float64(b.Height)-float64(v.height)*s)/2 + v.panY)
+	return imageColourAt(v.source, int(math.Floor((float64(x)-left)/s)), int(math.Floor((float64(y)-top)/s)))
+}
+
+func (v *viewer) previewColourAt(x, y int) {
+	colour, ok := v.colourAt(x, y)
+	if !ok || v.colourPickerButton.Text() == colour {
+		return
+	}
+	v.colourPickerButton.SetText(colour)
+	var red, green, blue uint8
+	fmt.Sscanf(colour[:7], "#%02x%02x%02x", &red, &green, &blue)
+	v.previewColour = walk.RGB(red, green, blue)
+	v.colourPreview.Invalidate()
+}
+
+func (v *viewer) colourPreviewWidget() ImageView {
+	return ImageView{AssignTo: &v.colourPreview, Alignment: AlignHNearVCenter,
+		MinSize: Size{Width: 20, Height: 20}, MaxSize: Size{Width: 20, Height: 20}, ToolTipText: "Eyedropper colour preview",
+		Image: walk.NewPaintFuncImage(walk.Size{Width: 20, Height: 20}, func(c *walk.Canvas, _ walk.Rectangle) error {
+			border, err := walk.NewSolidColorBrush(walk.RGB(128, 128, 128))
+			if err != nil {
+				return err
+			}
+			defer border.Dispose()
+			fill, err := walk.NewSolidColorBrush(v.previewColour)
+			if err != nil {
+				return err
+			}
+			defer fill.Dispose()
+			if err := c.FillRectangle(border, walk.Rectangle{Width: 20, Height: 20}); err != nil {
+				return err
+			}
+			return c.FillRectangle(fill, walk.Rectangle{X: 1, Y: 1, Width: 18, Height: 18})
+		}),
+	}
+}
+
+func (v *viewer) pickColourAt(x, y int) {
+	colour, ok := v.colourAt(x, y)
+	if !ok {
+		return
+	}
+	v.previewColourAt(x, y)
+	copied := formatPickedColour(colour, v.copyFormat)
+	if err := walk.Clipboard().SetText(copied); err != nil {
+		walk.MsgBox(v.window, "Unable to copy colour", err.Error(), walk.MsgBoxIconError)
+		return
+	}
+	v.focusImage()
+	v.colourPickerButton.SetText(colour)
+	v.colourPickerButton.SetToolTipText("Copied " + copied + " to clipboard. Press C to pick another pixel.")
+}
+
+func imageColourAt(im *decodedImage, x, y int) (string, bool) {
+	if im == nil || x < 0 || y < 0 || x >= im.width || y >= im.height {
+		return "", false
+	}
+	p := im.pixels[(y*im.width+x)*4:][:4]
+	alpha := int(p[3])
+	channel := func(value byte) int {
+		if alpha == 0 {
+			return 0
+		}
+		return min(255, (int(value)*255+alpha/2)/alpha)
+	}
+	colour := fmt.Sprintf("#%02X%02X%02X", channel(p[2]), channel(p[1]), channel(p[0]))
+	if alpha != 255 {
+		colour += fmt.Sprintf("%02X", alpha)
+	}
+	return colour, true
 }
 
 func (v *viewer) openDialog() {
@@ -287,7 +433,7 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 	}
 	status := "Open an image • Ctrl+O"
 	if v.source != nil {
-		status = fmt.Sprintf("%d × %d  •  %.0f%%", v.width, v.height, s*100)
+		status = fmt.Sprintf("%d × %d  •  %.0f%%  •  %s", v.width, v.height, s*100, formatFileSize(v.source.fileSize))
 	}
 	if v.loading {
 		status = "Loading…"
@@ -304,6 +450,20 @@ func (v *viewer) paint(_ *walk.Canvas, _ walk.Rectangle) error {
 		v.rendererLabel = label
 	}
 	return nil
+}
+
+func formatFileSize(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	size := float64(bytes)
+	for _, unit := range []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"} {
+		size /= 1024
+		if size < 1024 || unit == "EiB" {
+			return fmt.Sprintf("%.1f %s", size, unit)
+		}
+	}
+	return ""
 }
 
 func (v *viewer) setBoundsHighlight(held bool) {

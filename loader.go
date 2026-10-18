@@ -20,6 +20,7 @@ import (
 )
 
 type decodedImage struct {
+	fileSize      int64
 	width, height int
 	pixels        []byte
 }
@@ -117,11 +118,20 @@ func decodeImage(path string, cancelled func() bool) (*decodedImage, error) {
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
 	im, _, err := image.Decode(cancellableReader{Reader: f, cancelled: cancelled})
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode %s: %w", filepath.Base(path), err)
 	}
-	return preparePixels(im, cancelled)
+	decoded, err := preparePixels(im, cancelled)
+	if err != nil {
+		return nil, err
+	}
+	decoded.fileSize = info.Size()
+	return decoded, nil
 }
 
 // Go RGBA is premultiplied; Direct2D expects premultiplied BGRA. Conversion is
@@ -162,6 +172,9 @@ func loadPumpProc(hwnd win.HWND, message uint32, wParam uintptr, lParam unsafe.P
 		v := value.(*viewer)
 		switch message {
 		case win.WM_ACTIVATE:
+			if wParam&0xffff == 0 {
+				v.stopDrag()
+			}
 			v.setBoundsHighlight(wParam&0xffff != 0 && walk.ModifiersDown()&walk.ModControl != 0)
 		case imageReadyMessage:
 			v.finishLoad()

@@ -10,6 +10,22 @@ import (
 	"testing"
 )
 
+func TestImageColourSampling(t *testing.T) {
+	im := &decodedImage{width: 2, height: 1, pixels: []byte{0x56, 0x34, 0x12, 255, 0, 0, 128, 128}}
+	for _, tc := range []struct {
+		x, y int
+		want string
+		ok   bool
+	}{
+		{0, 0, "#123456", true}, {1, 0, "#FF000080", true}, {-1, 0, "", false}, {2, 0, "", false}, {0, 1, "", false},
+	} {
+		got, ok := imageColourAt(im, tc.x, tc.y)
+		if got != tc.want || ok != tc.ok {
+			t.Fatalf("sample %d,%d: %q,%v", tc.x, tc.y, got, ok)
+		}
+	}
+}
+
 func TestZoomKeepsCursorImagePoint(t *testing.T) {
 	for _, test := range []struct{ pan, anchor, centre, scale, ratio float64 }{
 		{0, 100, 500, 0.5, 1.25}, {135, 720, 500, 2, 0.8}, {-80, 300, 720, 1, 4}, {50, 500, 500, 1, 1},
