@@ -15,7 +15,7 @@ Images share a spatial canvas at their original relative sizes. They start in a 
 - In wrap mode, type a pixel width and press Enter to apply it exactly (0 clears wrapping). Backspace edits; invalid input or Escape preserves the previous width. Left-click placement continues to use 8px snapping.
 - Gap and wrap inputs accept calculations with `+`, `-`, `*`, `/`, `%` and parentheses. A leading operator uses the current setting, e.g. `*2` doubles it or `-8` subtracts 8. Results round to the nearest pixel; invalid calculations leave settings unchanged.
 - Use `$1`, `$2`, etc. in gap or wrap formulas for image widths in the current workspace order, e.g. `$1+$2+16`. Missing or not-yet-loaded image references leave the setting unchanged.
-- **Left / Right:** select and centre the previous/next workspace image at the current zoom. Navigation wraps.
+- **Left / Right:** with one image in the workspace, browse supported images in the same folder in filename order, replacing the displayed image. With multiple images, select and centre the previous/next workspace image at the current zoom. Navigation wraps.
 - **Up / Down:** select and centre the closest image in the row above or below, keeping the current zoom. Stops at the first or last row.
 - All four arrow keys also navigate while Ctrl is held. The focused image's white outline is drawn above blue image outlines.
 - **File → Clear workspace / Ctrl+N:** remove all images and cancel pending loads.

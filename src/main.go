@@ -570,6 +570,10 @@ func (v *viewer) navigate(delta int) {
 	if len(v.workspace) == 0 {
 		return
 	}
+	if len(v.workspace) == 1 {
+		v.browseFolder(delta)
+		return
+	}
 	s := v.displayScale()
 	v.selectImage((v.activeIndex + delta + len(v.workspace)) % len(v.workspace))
 	v.fit = false
